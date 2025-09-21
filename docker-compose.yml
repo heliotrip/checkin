@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  checkin:
+    build: .
+    ports:
+      - "3001:3001"
+    volumes:
+      - checkin-data:/data
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  checkin-data:
+    driver: local
