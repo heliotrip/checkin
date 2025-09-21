@@ -54,3 +54,8 @@ The application uses SQLite for data storage. In Docker deployments, data is per
 - **Backend**: Node.js, Express
 - **Database**: SQLite
 - **Deployment**: Docker, Docker Compose
+
+## Authors
+
+Chris Nuzum @heliotrip
+Enzo Nuzum @spiritrover
