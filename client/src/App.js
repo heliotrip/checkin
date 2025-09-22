@@ -12,6 +12,7 @@ import {
 } from 'chart.js';
 import HomePage from './HomePage';
 import CheckinPage from './CheckinPage';
+import DataEditor from './DataEditor';
 import './App.css';
 
 ChartJS.register(
@@ -29,6 +30,7 @@ function App() {
     <Routes>
       <Route path="/" element={<HomePage />} />
       <Route path="/:userId" element={<CheckinPage />} />
+      <Route path="/:userId/data" element={<DataEditor />} />
     </Routes>
   );
 }

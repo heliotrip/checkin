@@ -95,6 +95,74 @@ app.post('/api/checkins', (req, res) => {
   );
 });
 
+app.put('/api/checkins/:userId/bulk', (req, res) => {
+  const { userId } = req.params;
+  const { data } = req.body;
+
+
+  if (!Array.isArray(data)) {
+    res.status(400).json({ error: 'Data must be an array' });
+    return;
+  }
+
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+
+    db.run('DELETE FROM checkins WHERE user_id = ?', [userId], (err) => {
+      if (err) {
+        db.run('ROLLBACK');
+        res.status(500).json({ error: 'Failed to clear existing data: ' + err.message });
+        return;
+      }
+
+      if (data.length === 0) {
+        db.run('COMMIT');
+        res.json({ message: 'All data deleted successfully' });
+        return;
+      }
+
+      let completed = 0;
+      let hasError = false;
+
+      data.forEach((row) => {
+        const id = uuidv4();
+        db.run(
+          `INSERT INTO checkins
+           (id, user_id, date, overall, wellbeing, growth, relationships, impact)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [id, userId, row.date, row.overall, row.wellbeing, row.growth, row.relationships, row.impact],
+          (err) => {
+            if (err && !hasError) {
+              hasError = true;
+              db.run('ROLLBACK');
+              res.status(500).json({ error: 'Failed to insert data: ' + err.message });
+              return;
+            }
+
+            completed++;
+            if (completed === data.length && !hasError) {
+              db.run('COMMIT');
+              res.json({ message: `Successfully saved ${data.length} records` });
+            }
+          }
+        );
+      });
+    });
+  });
+});
+
+app.delete('/api/checkins/:userId/bulk', (req, res) => {
+  const { userId } = req.params;
+
+  db.run('DELETE FROM checkins WHERE user_id = ?', [userId], function(err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ message: `Deleted ${this.changes} records` });
+  });
+});
+
 app.get('/api/generate-id', (req, res) => {
   const newId = uuidv4();
   res.json({ userId: newId });

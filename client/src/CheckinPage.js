@@ -422,6 +422,12 @@ function CheckinPage() {
           >
             ← Back to Home
           </Button>
+          <Button
+            variant="outlined"
+            onClick={() => navigate(`/${userId}/data`)}
+          >
+            Edit Data
+          </Button>
         </Box>
       </Paper>
 
