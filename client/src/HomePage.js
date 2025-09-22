@@ -67,7 +67,7 @@ function HomePage() {
     const updated = [
       id,
       ...recentIds.filter((existingId) => existingId !== id),
-    ].slice(0, 5);
+    ];
     setRecentIds(updated);
     localStorage.setItem("checkin-recent-ids", JSON.stringify(updated));
   };
