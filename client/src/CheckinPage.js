@@ -23,23 +23,12 @@ function CheckinPage() {
     relationships: 5,
     impact: 5
   });
-  const [previousValues, setPreviousValues] = useState({});
   const [historicalData, setHistoricalData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [editNameDialog, setEditNameDialog] = useState(false);
   const [currentName, setCurrentName] = useState('');
   const [editingName, setEditingName] = useState('');
-
-  useEffect(() => {
-    if (!userId) {
-      navigate('/');
-      return;
-    }
-    fetchHistoricalData();
-    fetchDataForDate();
-    loadCurrentName();
-  }, [userId, date, navigate]);
 
   const loadCurrentName = () => {
     const storedNames = localStorage.getItem('checkin-id-names');
@@ -68,10 +57,6 @@ function CheckinPage() {
       const response = await fetch(`/api/checkins/${userId}/${date}`);
       const data = await response.json();
 
-      const previousEntry = historicalData
-        .filter(entry => entry.date < date)
-        .sort((a, b) => b.date.localeCompare(a.date))[0];
-
       if (data) {
         setValues({
           overall: data.overall,
@@ -81,6 +66,14 @@ function CheckinPage() {
           impact: data.impact
         });
       } else {
+        // Get fresh historical data for calculating previous values
+        const histResponse = await fetch(`/api/checkins/${userId}`);
+        const histData = await histResponse.json();
+
+        const previousEntry = histData
+          .filter(entry => entry.date < date)
+          .sort((a, b) => b.date.localeCompare(a.date))[0];
+
         if (previousEntry) {
           setValues({
             overall: previousEntry.overall,
@@ -100,21 +93,21 @@ function CheckinPage() {
         }
       }
 
-      if (previousEntry) {
-        setPreviousValues({
-          overall: previousEntry.overall,
-          wellbeing: previousEntry.wellbeing,
-          growth: previousEntry.growth,
-          relationships: previousEntry.relationships,
-          impact: previousEntry.impact
-        });
-      } else {
-        setPreviousValues({});
-      }
     } catch (error) {
       console.error('Error fetching data for date:', error);
     }
   };
+
+  useEffect(() => {
+    if (!userId) {
+      navigate('/');
+      return;
+    }
+    fetchHistoricalData();
+    fetchDataForDate();
+    loadCurrentName();
+  }, [userId, date, navigate]);
+
 
   const handleSliderChange = (category, newValue) => {
     setValues(prev => ({
@@ -327,16 +320,22 @@ function CheckinPage() {
           />
         </Box>
 
-        <Grid container spacing={2}>
+        <Box sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: '1fr',
+            sm: '1fr 1fr'
+          },
+          gap: 2,
+          maxWidth: '100%'
+        }}>
           {categories.map((category) => (
-            <Grid item xs={12} sm={6} md={4} key={category.key}>
-              <Paper elevation={1} sx={{
-                p: 3,
-                borderRadius: 2,
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column'
-              }}>
+            <Paper key={category.key} elevation={1} sx={{
+              p: 3,
+              borderRadius: 2,
+              display: 'flex',
+              flexDirection: 'column'
+            }}>
                 <Typography variant="h6" sx={{
                   textAlign: 'center',
                   color: category.color,
@@ -385,9 +384,8 @@ function CheckinPage() {
                   />
                 </Box>
               </Paper>
-            </Grid>
           ))}
-        </Grid>
+        </Box>
 
         <Box sx={{ mt: 4, textAlign: 'center' }}>
           <Button
