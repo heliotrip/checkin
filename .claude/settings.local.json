@@ -11,7 +11,9 @@
       "Bash(npm start)",
       "Bash(lsof:*)",
       "Bash(xargs kill:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm test)"
     ],
     "deny": [],
     "ask": []

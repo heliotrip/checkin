@@ -10,6 +10,7 @@ A 1-1 check-in tracking application for monitoring team progress over time acros
 - **Date-based Entries**: Track progress by date, with ability to enter historical data
 - **CSV Data Editor**: Bulk edit historical data with CSV import/export functionality
 - **Team Management**: Local name storage and ID sharing for easy team coordination
+- **Recent IDs**: Unlimited history of all visited team member IDs for easy navigation
 - **URL-based Sharing**: Share unique check-in URLs with team members
 - **Persistent Storage**: SQLite database with Docker volume for data persistence
 
@@ -73,6 +74,7 @@ date,overall,wellbeing,growth,relationships,impact
 ### Team Management
 
 - Assign names to team member IDs for easy identification
+- Access unlimited history of all team member IDs in Recent IDs section
 - Share URLs directly with team members
 - Names are stored locally in your browser
 
@@ -94,7 +96,21 @@ The application uses SQLite for data storage. In Docker deployments, data is per
 - **Frontend**: React, Material-UI, Chart.js
 - **Backend**: Node.js, Express
 - **Database**: SQLite
+- **Testing**: Playwright (cross-browser end-to-end testing)
 - **Deployment**: Docker, Docker Compose
+
+## Testing
+
+Run the test suite with:
+
+```bash
+npm test                 # Run all tests headlessly
+npm run test:headed      # Run tests with browser UI
+npm run test:ui          # Interactive test runner
+npm run test:report      # View HTML test reports
+```
+
+The test suite includes stable end-to-end tests covering core functionality across Chromium, Firefox, and WebKit browsers.
 
 ## Authors
 

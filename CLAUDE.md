@@ -10,8 +10,10 @@ Checkin is a 1-1 check-in tracking application for monitoring team progress over
 - Historical sparkline visualizations using Chart.js
 - CSV data editor for bulk import/export
 - Team management with local name storage
+- Recent IDs with unlimited history for team navigation
 - URL-based sharing for team coordination
 - Docker deployment with persistent SQLite storage
+- Playwright test suite for cross-browser testing
 
 ## Architecture
 
@@ -212,6 +214,7 @@ SELECT * FROM checkins LIMIT 5;
 
 ### Development Tools
 - `concurrently` - Run client/server simultaneously
+- `@playwright/test` - Cross-browser end-to-end testing
 - Docker and docker-compose for deployment
 
 ## Future Considerations
@@ -224,8 +227,21 @@ SELECT * FROM checkins LIMIT 5;
 - Real-time collaboration features
 
 ### Technical Debt
-- Add comprehensive test suite
+- Expand test coverage beyond core functionality
 - Implement error boundaries in React
 - Add database migrations system
 - Consider moving to PostgreSQL for production scale
 - Add API rate limiting and security headers
+
+## Recent Enhancements
+
+### Recent IDs Enhancement (Latest)
+- Removed 5-item limit from Recent IDs section in `client/src/HomePage.js:70`
+- Users can now access unlimited history of all visited team member IDs
+- Enhances team coordination by providing easy access to all team members
+
+### Playwright Test Suite (Latest)
+- Added comprehensive cross-browser testing with Playwright
+- 12 stable tests covering core functionality (Homepage, Checkin Page, Recent IDs)
+- Test scripts: `npm test`, `npm run test:headed`, `npm run test:ui`, `npm run test:report`
+- Configuration in `playwright.config.js` with multi-browser support (Chromium, Firefox, WebKit)
