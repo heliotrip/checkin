@@ -8,7 +8,6 @@ import {
   Button,
   TextField,
   Slider,
-  Grid,
   IconButton,
   Tooltip,
   Dialog,
@@ -44,6 +43,9 @@ function CheckinPage() {
   const [editNameDialog, setEditNameDialog] = useState(false);
   const [currentName, setCurrentName] = useState("");
   const [editingName, setEditingName] = useState("");
+  const [isAddingMode, setIsAddingMode] = useState(false);
+  const [existingEntryForDate, setExistingEntryForDate] = useState(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const loadCurrentName = () => {
     const storedNames = localStorage.getItem("checkin-id-names");
@@ -73,6 +75,8 @@ function CheckinPage() {
       const data = await response.json();
 
       if (data) {
+        // Existing entry found
+        setExistingEntryForDate(data);
         setValues({
           overall: data.overall,
           wellbeing: data.wellbeing,
@@ -80,8 +84,12 @@ function CheckinPage() {
           relationships: data.relationships,
           impact: data.impact,
         });
+        setIsAddingMode(false);
       } else {
-        // Get fresh historical data for calculating previous values
+        // No entry for this date - show historical data but don't allow editing yet
+        setExistingEntryForDate(null);
+
+        // Get fresh historical data for displaying previous values
         const histResponse = await fetch(`/api/checkins/${userId}`);
         const histData = await histResponse.json();
 
@@ -106,6 +114,7 @@ function CheckinPage() {
             impact: 5,
           });
         }
+        setIsAddingMode(false);
       }
     } catch (error) {
       console.error("Error fetching data for date:", error);
@@ -129,8 +138,36 @@ function CheckinPage() {
     }));
   };
 
+  const handleStartAdding = () => {
+    setIsAddingMode(true);
+    setValues({
+      overall: 5,
+      wellbeing: 5,
+      growth: 5,
+      relationships: 5,
+      impact: 5,
+    });
+  };
+
+  const handleCancelAdding = () => {
+    setIsAddingMode(false);
+    // Reset to previous values
+    if (existingEntryForDate) {
+      setValues({
+        overall: existingEntryForDate.overall,
+        wellbeing: existingEntryForDate.wellbeing,
+        growth: existingEntryForDate.growth,
+        relationships: existingEntryForDate.relationships,
+        impact: existingEntryForDate.impact,
+      });
+    } else {
+      fetchDataForDate();
+    }
+  };
+
   const handleSave = async () => {
     setLoading(true);
+    setSaveSuccess(false);
     try {
       const response = await fetch("/api/checkins", {
         method: "POST",
@@ -146,7 +183,10 @@ function CheckinPage() {
 
       if (response.ok) {
         await fetchHistoricalData();
-        console.log("Check-in saved successfully");
+        await fetchDataForDate(); // Refresh the current date data
+        setIsAddingMode(false);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
       } else {
         console.error("Error saving check-in");
       }
@@ -395,7 +435,7 @@ function CheckinPage() {
                   overflow: "visible",
                 }}
               >
-                {historicalData.length > 0 && (
+                {!isAddingMode && historicalData.length > 1 && (
                   <Line
                     data={getSparklineData(category.key)}
                     options={sparklineOptions}
@@ -414,6 +454,7 @@ function CheckinPage() {
                   step={1}
                   marks
                   valueLabelDisplay="on"
+                  disabled={!isAddingMode && !existingEntryForDate}
                   sx={{
                     color: category.color,
                     "& .MuiSlider-thumb": {
@@ -434,22 +475,97 @@ function CheckinPage() {
         </Box>
 
         <Box sx={{ mt: 4, textAlign: "center" }}>
-          <Button
-            variant="contained"
-            size="large"
-            onClick={handleSave}
-            disabled={loading}
-            sx={{
-              px: 6,
-              py: 1.5,
-              fontSize: "1.1rem",
-              fontWeight: "bold",
-              borderRadius: 2,
-            }}
-          >
-            {loading ? "Saving..." : "Save Check-in"}
-          </Button>
+          {!isAddingMode && !existingEntryForDate && (
+            <Button
+              variant="contained"
+              size="large"
+              onClick={handleStartAdding}
+              sx={{
+                px: 6,
+                py: 1.5,
+                fontSize: "1.1rem",
+                fontWeight: "bold",
+                borderRadius: 2,
+                backgroundColor: "#2e7d32",
+                "&:hover": {
+                  backgroundColor: "#1b5e20",
+                },
+              }}
+            >
+              Add Check-in
+            </Button>
+          )}
+
+          {isAddingMode && (
+            <Box sx={{ display: "flex", justifyContent: "center", gap: 2 }}>
+              <Button
+                variant="outlined"
+                size="large"
+                onClick={handleCancelAdding}
+                disabled={loading}
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  fontSize: "1.1rem",
+                  borderRadius: 2,
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={handleSave}
+                disabled={loading}
+                sx={{
+                  px: 4,
+                  py: 1.5,
+                  fontSize: "1.1rem",
+                  fontWeight: "bold",
+                  borderRadius: 2,
+                }}
+              >
+                {loading ? "Saving..." : "Save"}
+              </Button>
+            </Box>
+          )}
+
+          {existingEntryForDate && !isAddingMode && (
+            <Button
+              variant="contained"
+              size="large"
+              onClick={handleSave}
+              disabled={loading}
+              sx={{
+                px: 6,
+                py: 1.5,
+                fontSize: "1.1rem",
+                fontWeight: "bold",
+                borderRadius: 2,
+              }}
+            >
+              {loading ? "Updating..." : "Update Check-in"}
+            </Button>
+          )}
         </Box>
+
+        {saveSuccess && (
+          <Box sx={{ mt: 2, textAlign: "center" }}>
+            <Typography
+              variant="body1"
+              sx={{
+                color: "#2e7d32",
+                fontWeight: "bold",
+                backgroundColor: "#e8f5e8",
+                padding: "8px 16px",
+                borderRadius: 1,
+                display: "inline-block",
+              }}
+            >
+              ✅ Check-in saved successfully!
+            </Typography>
+          </Box>
+        )}
 
         <Box
           sx={{
