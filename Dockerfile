@@ -27,8 +27,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # Create /data directory as root and set ownership to node user
 RUN mkdir -p /data && chown node:node /data
 
-# Declare volume for external mounting
-VOLUME ["/data"]
+# Note: Railway volumes are configured via Railway dashboard, not Dockerfile VOLUME
 
 EXPOSE 3001
 
