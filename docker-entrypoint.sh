@@ -3,6 +3,18 @@ set -e
 
 echo "Docker entrypoint: Checking /data directory permissions..."
 
+# Debug: Show mount information
+echo "Debug: Checking volume mount status..."
+if mountpoint -q /data; then
+    echo "/data is a mount point"
+else
+    echo "/data is NOT a mount point (using container filesystem)"
+fi
+
+# Show /data directory info
+ls -la /data 2>/dev/null | head -5 || echo "Cannot list /data directory"
+df -h /data || echo "Cannot show disk usage for /data"
+
 # Check if we're running as root (needed to fix permissions)
 if [ "$(id -u)" = "0" ]; then
     echo "Running as root, checking /data permissions..."
@@ -40,9 +52,16 @@ if [ "$(id -u)" = "0" ]; then
         echo "All files in /data are already owned by node user"
     fi
 
-    # Switch to node user and execute the application
+    # Debug: Test volume mount persistence by creating a test file
+    echo "Debug: Testing volume mount persistence..."
+    echo "Container started at $(date)" > /data/container-start.log
+    chown node:node /data/container-start.log
+    echo "Created test file /data/container-start.log"
+
+    # Switch to node user and execute the application (replace this process)
     echo "Switching to node user and starting application..."
     exec gosu node "$@"
+
 else
     # We're already running as non-root user
     echo "Running as non-root user: $(whoami)"

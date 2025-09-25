@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Container,
@@ -46,8 +46,9 @@ function CheckinPage() {
   const [isAddingMode, setIsAddingMode] = useState(false);
   const [existingEntryForDate, setExistingEntryForDate] = useState(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
-  const loadCurrentName = () => {
+  const loadCurrentName = useCallback(() => {
     const storedNames = localStorage.getItem("checkin-id-names");
     if (storedNames) {
       try {
@@ -57,9 +58,9 @@ function CheckinPage() {
         console.error("Error parsing ID names:", e);
       }
     }
-  };
+  }, [userId]);
 
-  const fetchHistoricalData = async () => {
+  const fetchHistoricalData = useCallback(async () => {
     try {
       const response = await fetch(`/api/checkins/${userId}`);
       const data = await response.json();
@@ -67,9 +68,9 @@ function CheckinPage() {
     } catch (error) {
       console.error("Error fetching historical data:", error);
     }
-  };
+  }, [userId]);
 
-  const fetchDataForDate = async () => {
+  const fetchDataForDate = useCallback(async () => {
     try {
       const response = await fetch(`/api/checkins/${userId}/${date}`);
       const data = await response.json();
@@ -119,7 +120,7 @@ function CheckinPage() {
     } catch (error) {
       console.error("Error fetching data for date:", error);
     }
-  };
+  }, [userId, date]);
 
   useEffect(() => {
     if (!userId) {
@@ -129,7 +130,7 @@ function CheckinPage() {
     fetchHistoricalData();
     fetchDataForDate();
     loadCurrentName();
-  }, [userId, date, navigate]);
+  }, [userId, date, navigate, fetchHistoricalData, fetchDataForDate, loadCurrentName]);
 
   const handleSliderChange = (category, newValue) => {
     setValues((prev) => ({
@@ -168,6 +169,8 @@ function CheckinPage() {
   const handleSave = async () => {
     setLoading(true);
     setSaveSuccess(false);
+    setSaveError("");
+
     try {
       const response = await fetch("/api/checkins", {
         method: "POST",
@@ -188,10 +191,25 @@ function CheckinPage() {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
-        console.error("Error saving check-in");
+        // Try to get error details from response
+        let errorMessage = `Failed to save check-in (${response.status})`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // If can't parse error response, use generic message
+        }
+        setSaveError(errorMessage);
+        setTimeout(() => setSaveError(""), 5000);
       }
     } catch (error) {
-      console.error("Error saving check-in:", error);
+      // Network error or other fetch failure
+      let errorMessage = "Unable to connect to server. Please check your internet connection and try again.";
+      if (error.message) {
+        errorMessage = `Save failed: ${error.message}`;
+      }
+      setSaveError(errorMessage);
+      setTimeout(() => setSaveError(""), 5000);
     } finally {
       setLoading(false);
     }
@@ -563,6 +581,25 @@ function CheckinPage() {
               }}
             >
               ✅ Check-in saved successfully!
+            </Typography>
+          </Box>
+        )}
+
+        {saveError && (
+          <Box sx={{ mt: 2, textAlign: "center" }}>
+            <Typography
+              variant="body1"
+              sx={{
+                color: "#d32f2f",
+                fontWeight: "bold",
+                backgroundColor: "#ffeaea",
+                padding: "8px 16px",
+                borderRadius: 1,
+                display: "inline-block",
+                border: "1px solid #ffcdd2",
+              }}
+            >
+              ❌ {saveError}
             </Typography>
           </Box>
         )}

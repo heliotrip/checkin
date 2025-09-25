@@ -27,6 +27,16 @@ function getDatabasePath() {
     fs.writeFileSync(testFile, 'test');
     fs.unlinkSync(testFile);
     console.log('Verified write access to /data directory');
+    console.log(`Database will be created at: ${productionPath}`);
+
+    // Debug: Show filesystem info about /data
+    try {
+      const stats = fs.statSync('/data');
+      console.log(`/data directory stats: uid=${stats.uid}, gid=${stats.gid}, mode=${stats.mode.toString(8)}`);
+    } catch (e) {
+      console.warn('Could not get /data stats:', e.message);
+    }
+
     return productionPath;
   } catch (error) {
     console.error('CRITICAL: Cannot write to /data directory in production!');
@@ -89,6 +99,23 @@ async function initializeDatabaseLazy() {
               reject(err);
             } else {
               console.log(`Connected to SQLite database at ${dbPath}`);
+
+              // Debug: Check if database file was created and show /data contents
+              try {
+                if (fs.existsSync(dbPath)) {
+                  const dbStats = fs.statSync(dbPath);
+                  console.log(`Database file created: size=${dbStats.size} bytes, uid=${dbStats.uid}, gid=${dbStats.gid}`);
+                } else {
+                  console.log('Database file does not exist yet');
+                }
+
+                // Show all files in /data directory
+                const dataFiles = fs.readdirSync('/data');
+                console.log(`Files in /data directory: ${dataFiles.join(', ')}`);
+              } catch (e) {
+                console.warn('Could not check database file stats:', e.message);
+              }
+
               resolve(database);
             }
           });
@@ -181,6 +208,21 @@ async function initializeDatabaseLazy() {
         });
 
         console.log('Database initialization completed successfully');
+
+        // Debug: Show final database file info
+        try {
+          if (fs.existsSync(dbPath)) {
+            const dbStats = fs.statSync(dbPath);
+            console.log(`Final database file: ${dbPath}, size=${dbStats.size} bytes`);
+
+            // Show all files in /data directory after initialization
+            const dataFiles = fs.readdirSync('/data');
+            console.log(`Final /data contents: ${dataFiles.join(', ')}`);
+          }
+        } catch (e) {
+          console.warn('Could not check final database stats:', e.message);
+        }
+
         isDbReady = true;
         isDbInitializing = false;
 
@@ -518,6 +560,42 @@ async function startServer() {
     console.error('Failed to start server:', error.message);
     process.exit(1);
   }
+}
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM, shutting down gracefully...');
+  gracefulShutdown();
+});
+
+process.on('SIGINT', () => {
+  console.log('Received SIGINT, shutting down gracefully...');
+  gracefulShutdown();
+});
+
+function gracefulShutdown() {
+  console.log('Starting graceful shutdown...');
+
+  // Close database connection if it exists
+  if (db) {
+    db.close((err) => {
+      if (err) {
+        console.error('Error closing database:', err.message);
+      } else {
+        console.log('Database connection closed');
+      }
+      process.exit(0);
+    });
+  } else {
+    console.log('No database connection to close');
+    process.exit(0);
+  }
+
+  // Force exit after 10 seconds if graceful shutdown fails
+  setTimeout(() => {
+    console.log('Forcing exit after timeout');
+    process.exit(1);
+  }, 10000);
 }
 
 startServer();

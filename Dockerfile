@@ -39,4 +39,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Use entrypoint script to handle permissions, then start the app
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["npm", "start"]
+CMD ["node", "server/index.js"]

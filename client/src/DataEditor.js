@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Container,
@@ -24,15 +24,7 @@ function DataEditor() {
   const [success, setSuccess] = useState('');
   const [deleteDialog, setDeleteDialog] = useState(false);
 
-  useEffect(() => {
-    if (!userId) {
-      navigate('/');
-      return;
-    }
-    loadData();
-  }, [userId, navigate]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -54,7 +46,15 @@ function DataEditor() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      navigate('/');
+      return;
+    }
+    loadData();
+  }, [userId, navigate, loadData]);
 
   const downloadCSV = () => {
     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
