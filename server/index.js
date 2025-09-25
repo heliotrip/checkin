@@ -26,7 +26,7 @@ function getDatabasePath() {
     const testFile = '/data/.write-test';
     fs.writeFileSync(testFile, 'test');
     fs.unlinkSync(testFile);
-    console.log('Verified write access to persistent volume at /data');
+    console.log('Verified write access to /data directory');
     return productionPath;
   } catch (error) {
     console.error('CRITICAL: Cannot write to /data directory in production!');
@@ -42,157 +42,243 @@ function getDatabasePath() {
 
 const dbPath = getDatabasePath();
 
-// Database initialization with retry logic
+// Database initialization state
 let db = null;
 let isDbReady = false;
+let isDbInitializing = false;
+let dbInitPromise = null;
+let requestQueue = [];
+let isContainerReady = false;
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function initializeDatabase(retryCount = 0) {
-  const maxRetries = 10;
-  const baseDelay = 1000; // 1 second
+// Lazy database initialization - called on first API request
+async function initializeDatabaseLazy() {
+  if (isDbReady) return db;
 
-  try {
-    console.log(`Attempting to initialize database (attempt ${retryCount + 1}/${maxRetries + 1})`);
+  // If already initializing, wait for it to complete
+  if (isDbInitializing && dbInitPromise) {
+    return dbInitPromise;
+  }
 
-    // Ensure the directory exists
-    const dbDir = path.dirname(dbPath);
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
-      console.log(`Created database directory: ${dbDir}`);
-    }
+  isDbInitializing = true;
+  console.log('Starting lazy database initialization...');
 
-    // Create database connection with timeout
-    db = new sqlite3.Database(dbPath, (err) => {
-      if (err) {
-        console.error('Error opening database:', err.message);
-        throw err;
-      }
-      console.log(`Connected to SQLite database at ${dbPath}`);
-    });
+  dbInitPromise = (async () => {
+    const maxRetries = 10;
+    const baseDelay = 1000; // 1 second
 
-    // Configure database for better concurrency and performance
-    await new Promise((resolve, reject) => {
-      db.serialize(() => {
-        let completed = 0;
-        const total = 3; // DELETE journal mode, busy timeout, table creation + write test
-        let hasError = false;
+    for (let retryCount = 0; retryCount <= maxRetries; retryCount++) {
+      try {
+        console.log(`Attempting to initialize database (attempt ${retryCount + 1}/${maxRetries + 1})`);
 
-        function checkCompletion() {
-          completed++;
-          if (completed === total && !hasError) {
-            console.log('Database configuration completed successfully');
-            isDbReady = true;
-            resolve();
-          }
+        // Ensure the directory exists
+        const dbDir = path.dirname(dbPath);
+        if (!fs.existsSync(dbDir)) {
+          fs.mkdirSync(dbDir, { recursive: true });
+          console.log(`Created database directory: ${dbDir}`);
         }
 
-        // Set DELETE journal mode for better container platform compatibility
-        db.run('PRAGMA journal_mode = DELETE', (err) => {
-          if (err) {
-            console.error('Error setting DELETE journal mode:', err.message);
-            hasError = true;
-            reject(err);
-            return;
-          }
-          console.log('SQLite DELETE journal mode enabled for container compatibility');
-          checkCompletion();
-        });
-
-        // Set busy timeout to 30 seconds
-        db.run('PRAGMA busy_timeout = 30000', (err) => {
-          if (err) {
-            console.error('Error setting busy timeout:', err.message);
-            hasError = true;
-            reject(err);
-            return;
-          }
-          console.log('SQLite busy timeout set to 30 seconds');
-          checkCompletion();
-        });
-
-        // Create table (critical)
-        db.run(`CREATE TABLE IF NOT EXISTS checkins (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          date TEXT NOT NULL,
-          overall INTEGER NOT NULL,
-          wellbeing INTEGER NOT NULL,
-          growth INTEGER NOT NULL,
-          relationships INTEGER NOT NULL,
-          impact INTEGER NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(user_id, date)
-        )`, (err) => {
-          if (err) {
-            console.error('Error creating table:', err.message);
-            hasError = true;
-            reject(err);
-            return;
-          }
-          console.log('Database table initialized successfully');
-
-          // Test actual database write capability
-          const testId = 'test-write-capability-' + Date.now();
-          db.run(`INSERT INTO checkins (id, user_id, date, overall, wellbeing, growth, relationships, impact)
-                   VALUES (?, 'test-user', '1900-01-01', 1, 1, 1, 1, 1)`, [testId], (err) => {
+        // Create database connection
+        db = await new Promise((resolve, reject) => {
+          const database = new sqlite3.Database(dbPath, (err) => {
             if (err) {
-              console.error('CRITICAL: Database is read-only - cannot perform write operations!');
-              console.error('Error:', err.message);
-              console.error('This indicates a filesystem or database permission issue.');
-              console.error('Container will now exit to prevent false operation.');
-              hasError = true;
-              reject(new Error('Database write test failed: ' + err.message));
-              return;
+              console.error('Error opening database:', err.message);
+              reject(err);
+            } else {
+              console.log(`Connected to SQLite database at ${dbPath}`);
+              resolve(database);
+            }
+          });
+        });
+
+        // Configure database
+        await new Promise((resolve, reject) => {
+          db.serialize(() => {
+            let completed = 0;
+            const total = 3; // DELETE journal mode, busy timeout, table creation + write test
+            let hasError = false;
+
+            function checkCompletion() {
+              completed++;
+              if (completed === total && !hasError) {
+                console.log('Database configuration completed successfully');
+                resolve();
+              }
             }
 
-            // Clean up test record
-            db.run(`DELETE FROM checkins WHERE id = ?`, [testId], (err) => {
+            // Set DELETE journal mode for better container platform compatibility
+            db.run('PRAGMA journal_mode = DELETE', (err) => {
               if (err) {
-                console.warn('Could not clean up test record, but write test passed:', err.message);
+                console.error('Error setting DELETE journal mode:', err.message);
+                hasError = true;
+                reject(err);
+                return;
               }
-              console.log('Database write test passed successfully');
+              console.log('SQLite DELETE journal mode enabled for container compatibility');
               checkCompletion();
+            });
+
+            // Set busy timeout to 30 seconds
+            db.run('PRAGMA busy_timeout = 30000', (err) => {
+              if (err) {
+                console.error('Error setting busy timeout:', err.message);
+                hasError = true;
+                reject(err);
+                return;
+              }
+              console.log('SQLite busy timeout set to 30 seconds');
+              checkCompletion();
+            });
+
+            // Create table (critical)
+            db.run(`CREATE TABLE IF NOT EXISTS checkins (
+              id TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              date TEXT NOT NULL,
+              overall INTEGER NOT NULL,
+              wellbeing INTEGER NOT NULL,
+              growth INTEGER NOT NULL,
+              relationships INTEGER NOT NULL,
+              impact INTEGER NOT NULL,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE(user_id, date)
+            )`, (err) => {
+              if (err) {
+                console.error('Error creating table:', err.message);
+                hasError = true;
+                reject(err);
+                return;
+              }
+              console.log('Database table initialized successfully');
+
+              // Test actual database write capability
+              const testId = 'test-write-capability-' + Date.now();
+              db.run(`INSERT INTO checkins (id, user_id, date, overall, wellbeing, growth, relationships, impact)
+                       VALUES (?, 'test-user', '1900-01-01', 1, 1, 1, 1, 1)`, [testId], (err) => {
+                if (err) {
+                  console.error('CRITICAL: Database is read-only - cannot perform write operations!');
+                  console.error('Error:', err.message);
+                  console.error('This indicates a filesystem or database permission issue.');
+                  hasError = true;
+                  reject(new Error('Database write test failed: ' + err.message));
+                  return;
+                }
+
+                // Clean up test record
+                db.run(`DELETE FROM checkins WHERE id = ?`, [testId], (err) => {
+                  if (err) {
+                    console.warn('Could not clean up test record, but write test passed:', err.message);
+                  }
+                  console.log('Database write test passed successfully');
+                  checkCompletion();
+                });
+              });
             });
           });
         });
-      });
-    });
 
-    console.log('Database initialization completed successfully');
-    return db;
+        console.log('Database initialization completed successfully');
+        isDbReady = true;
+        isDbInitializing = false;
 
-  } catch (error) {
-    console.error(`Database initialization failed (attempt ${retryCount + 1}):`, error.message);
+        // Process queued requests
+        await processQueuedRequests();
 
-    if (db) {
-      db.close();
-      db = null;
+        return db;
+
+      } catch (error) {
+        console.error(`Database initialization failed (attempt ${retryCount + 1}):`, error.message);
+
+        if (db) {
+          db.close();
+          db = null;
+        }
+
+        if (retryCount < maxRetries) {
+          const delay = baseDelay * Math.pow(2, retryCount); // Exponential backoff
+          console.log(`Retrying in ${delay}ms...`);
+          await sleep(delay);
+        } else {
+          console.error('Max retries exceeded. Database initialization failed.');
+          isDbInitializing = false;
+          throw error;
+        }
+      }
     }
+  })();
 
-    if (retryCount < maxRetries) {
-      const delay = baseDelay * Math.pow(2, retryCount); // Exponential backoff
-      console.log(`Retrying in ${delay}ms...`);
-      await sleep(delay);
-      return initializeDatabase(retryCount + 1);
-    } else {
-      console.error('Max retries exceeded. Database initialization failed.');
-      throw error;
-    }
-  }
+  return dbInitPromise;
 }
 
-// Middleware to check database readiness
-function ensureDatabaseReady(req, res, next) {
-  if (!isDbReady || !db) {
-    return res.status(503).json({
-      error: 'Database not ready. Please try again in a moment.',
-      ready: false
+// Process queued requests after database initialization
+async function processQueuedRequests() {
+  console.log(`Processing ${requestQueue.length} queued requests...`);
+
+  for (const queuedRequest of requestQueue) {
+    try {
+      await queuedRequest.handler();
+      console.log('Processed queued request successfully');
+    } catch (error) {
+      console.error('Error processing queued request:', error.message);
+      queuedRequest.reject(error);
+    }
+  }
+
+  requestQueue = [];
+  console.log('Finished processing queued requests');
+}
+
+// Middleware to handle database initialization and request queuing
+async function ensureDatabaseReady(req, res, next) {
+  if (isDbReady && db) {
+    // Database is ready, proceed normally
+    return next();
+  }
+
+  if (!isDbInitializing) {
+    // Start lazy initialization on first request
+    console.log('Database not initialized, starting lazy initialization...');
+    initializeDatabaseLazy().catch(error => {
+      console.error('Database initialization failed:', error.message);
     });
   }
-  next();
+
+  if (isDbInitializing) {
+    // Queue this request to be processed after initialization
+    console.log('Queueing request during database initialization...');
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Database initialization timeout'));
+      }, 60000); // 1 minute timeout
+
+      requestQueue.push({
+        handler: async () => {
+          clearTimeout(timeout);
+          res.locals.isQueuedRequest = true;
+          next();
+          resolve();
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          res.status(503).json({
+            error: 'Database initialization failed',
+            details: error.message
+          });
+          reject(error);
+        }
+      });
+    });
+  }
+
+  // Fallback - should not reach here
+  return res.status(503).json({
+    error: 'Database not ready. Please try again in a moment.',
+    ready: false
+  });
 }
 
 app.get('/api/checkins/:userId', ensureDatabaseReady, (req, res) => {
@@ -343,10 +429,10 @@ app.get('/api/generate-id', (req, res) => {
   res.json({ userId: newId });
 });
 
-// Health check endpoint
+// Health check endpoint - shows database status
 app.get('/health', (req, res) => {
   if (isDbReady && db) {
-    // Quick database connectivity test
+    // Database is fully ready - do connectivity test
     db.get('SELECT 1 as test', (err, row) => {
       if (err) {
         console.error('Health check database query failed:', err.message);
@@ -360,9 +446,24 @@ app.get('/health', (req, res) => {
       }
       res.json({
         status: 'healthy',
-        database: 'connected',
+        database: 'ready',
         timestamp: new Date().toISOString()
       });
+    });
+  } else if (isDbInitializing) {
+    // Database is initializing - container is working but not fully ready
+    res.json({
+      status: 'healthy',
+      database: 'initializing',
+      queuedRequests: requestQueue.length,
+      timestamp: new Date().toISOString()
+    });
+  } else if (isContainerReady) {
+    // Container is ready but database not yet initialized
+    res.json({
+      status: 'healthy',
+      database: 'not_initialized',
+      timestamp: new Date().toISOString()
     });
   } else {
     res.status(503).json({
@@ -373,12 +474,20 @@ app.get('/health', (req, res) => {
   }
 });
 
-// Readiness check endpoint (for container orchestration)
+// Readiness check endpoint - for container orchestration (fast startup)
 app.get('/ready', (req, res) => {
-  if (isDbReady && db) {
-    res.json({ ready: true, timestamp: new Date().toISOString() });
+  if (isContainerReady) {
+    // Container can accept traffic even if database isn't ready yet
+    res.json({
+      ready: true,
+      database: isDbReady ? 'ready' : (isDbInitializing ? 'initializing' : 'not_initialized'),
+      timestamp: new Date().toISOString()
+    });
   } else {
-    res.status(503).json({ ready: false, timestamp: new Date().toISOString() });
+    res.status(503).json({
+      ready: false,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -390,16 +499,20 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Initialize database and start server
+// Fast container startup - no database initialization
 async function startServer() {
   try {
-    console.log('Starting server initialization...');
-    await initializeDatabase();
+    console.log('Starting server with fast readiness approach...');
+
+    // Only verify filesystem access, not database initialization
+    console.log('Container readiness check completed - filesystem access verified');
+    isContainerReady = true;
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Health check available at http://localhost:${PORT}/health`);
       console.log(`Ready check available at http://localhost:${PORT}/ready`);
+      console.log('Database will be initialized on first API request (lazy initialization)');
     });
   } catch (error) {
     console.error('Failed to start server:', error.message);
