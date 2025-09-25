@@ -19,11 +19,41 @@ import { ContentCopy, Share, Edit } from "@mui/icons-material";
 import { Line } from "react-chartjs-2";
 
 const categories = [
-  { key: "overall", label: "Overall", color: "#1976d2" },
-  { key: "wellbeing", label: "Wellbeing", color: "#388e3c" },
-  { key: "growth", label: "Growth", color: "#f57c00" },
-  { key: "relationships", label: "Relationships", color: "#e91e63" },
-  { key: "impact", label: "Impact", color: "#7b1fa2" },
+  {
+    key: "overall",
+    label: "Overall",
+    icon: "🎯",
+    color: "#1976d2",
+    description: "How are you feeling about work overall?"
+  },
+  {
+    key: "wellbeing",
+    label: "Wellbeing",
+    icon: "🌱",
+    color: "#388e3c",
+    description: "How is your physical and mental health?"
+  },
+  {
+    key: "growth",
+    label: "Growth",
+    icon: "📈",
+    color: "#f57c00",
+    description: "Are you learning/growing/progressing on your plan as you'd like to?"
+  },
+  {
+    key: "relationships",
+    label: "Relationships",
+    icon: "👥",
+    color: "#e91e63",
+    description: "How's team life and collaboration?"
+  },
+  {
+    key: "impact",
+    label: "Impact",
+    icon: "⚡",
+    color: "#7b1fa2",
+    description: "Running, running to stand still, or falling behind?"
+  },
 ];
 
 function CheckinPage() {
@@ -284,8 +314,11 @@ function CheckinPage() {
             categories.find((c) => c.key === category)?.color || "#1976d2",
           backgroundColor: "transparent",
           borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          pointBackgroundColor: 'rgba(255, 255, 255, 0.9)',
+          pointBorderColor: categories.find((c) => c.key === category)?.color || "#1976d2",
+          pointBorderWidth: 2,
           tension: 0.4,
         },
       ],
@@ -308,7 +341,24 @@ function CheckinPage() {
         display: false,
       },
       tooltip: {
-        enabled: false,
+        enabled: true,
+        mode: 'nearest',
+        intersect: false,
+        backgroundColor: 'rgba(0,0,0,0.9)',
+        titleColor: 'white',
+        bodyColor: 'white',
+        cornerRadius: 4,
+        displayColors: false,
+        position: 'average',
+        yAlign: 'top',
+        callbacks: {
+          title: function(context) {
+            return context[0].label;
+          },
+          label: function(context) {
+            return `${context.parsed.y}/10`;
+          }
+        }
       },
     },
     scales: {
@@ -320,8 +370,8 @@ function CheckinPage() {
       },
       y: {
         display: false,
-        min: 0.5,
-        max: 10.5,
+        min: 0.2,
+        max: 11.5,
         grid: {
           display: false,
         },
@@ -329,7 +379,11 @@ function CheckinPage() {
     },
     elements: {
       point: {
-        radius: 0,
+        radius: 3,
+        hoverRadius: 5,
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        borderColor: 'currentColor',
+        borderWidth: 1,
       },
       line: {
         borderWidth: 2,
@@ -409,6 +463,20 @@ function CheckinPage() {
               shrink: true,
             }}
           />
+          {historicalData.length > 0 && (
+            <Typography
+              variant="caption"
+              sx={{
+                color: "#666",
+                mt: 1,
+                display: "block",
+                textAlign: "center",
+                fontSize: "0.8rem",
+              }}
+            >
+              Last check-in: {historicalData[historicalData.length - 1]?.date || 'Never'}
+            </Typography>
+          )}
         </Box>
 
         <Box
@@ -433,17 +501,32 @@ function CheckinPage() {
                 flexDirection: "column",
               }}
             >
-              <Typography
-                variant="h6"
+              <Box
                 sx={{
-                  textAlign: "center",
-                  color: category.color,
-                  fontWeight: "bold",
-                  mb: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 1,
+                  mb: 1,
                 }}
               >
-                {category.label}
-              </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "1.5rem",
+                  }}
+                >
+                  {category.icon}
+                </Typography>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    color: category.color,
+                    fontWeight: "bold",
+                  }}
+                >
+                  {category.label}
+                </Typography>
+              </Box>
 
               <Box
                 sx={{
@@ -462,31 +545,64 @@ function CheckinPage() {
               </Box>
 
               <Box sx={{ px: 1, flexGrow: 1 }}>
-                <Slider
-                  value={values[category.key]}
-                  onChange={(e, newValue) =>
-                    handleSliderChange(category.key, newValue)
-                  }
-                  min={1}
-                  max={10}
-                  step={1}
-                  marks
-                  valueLabelDisplay="on"
-                  disabled={!isAddingMode && !existingEntryForDate}
+                {/* Slider with inline emoji indicators */}
+                <Box
                   sx={{
-                    color: category.color,
-                    "& .MuiSlider-thumb": {
-                      height: 24,
-                      width: 24,
-                    },
-                    "& .MuiSlider-track": {
-                      height: 8,
-                    },
-                    "& .MuiSlider-rail": {
-                      height: 8,
-                    },
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1.5,
                   }}
-                />
+                >
+                  <Typography sx={{ fontSize: "1.2rem", flexShrink: 0 }}>
+                    😞
+                  </Typography>
+
+                  <Slider
+                    value={values[category.key]}
+                    onChange={(e, newValue) =>
+                      handleSliderChange(category.key, newValue)
+                    }
+                    min={1}
+                    max={10}
+                    step={1}
+                    marks
+                    valueLabelDisplay="on"
+                    disabled={!isAddingMode && !existingEntryForDate}
+                    sx={{
+                      color: category.color,
+                      flex: 1,
+                      "& .MuiSlider-thumb": {
+                        height: 24,
+                        width: 24,
+                      },
+                      "& .MuiSlider-track": {
+                        height: 8,
+                      },
+                      "& .MuiSlider-rail": {
+                        height: 8,
+                      },
+                    }}
+                  />
+
+                  <Typography sx={{ fontSize: "1.2rem", flexShrink: 0 }}>
+                    😊
+                  </Typography>
+                </Box>
+
+                {/* Category description below slider */}
+                <Typography
+                  variant="body2"
+                  sx={{
+                    textAlign: "center",
+                    color: "#666",
+                    mt: 2,
+                    fontSize: "0.85rem",
+                    fontStyle: "italic",
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {category.description}
+                </Typography>
               </Box>
             </Paper>
           ))}
