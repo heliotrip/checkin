@@ -77,7 +77,7 @@ async function initializeDatabase(retryCount = 0) {
     await new Promise((resolve, reject) => {
       db.serialize(() => {
         let completed = 0;
-        const total = 3; // WAL mode, busy timeout, table creation + write test
+        const total = 3; // DELETE journal mode, busy timeout, table creation + write test
         let hasError = false;
 
         function checkCompletion() {
@@ -89,14 +89,15 @@ async function initializeDatabase(retryCount = 0) {
           }
         }
 
-        // Try to enable WAL mode for better concurrency (non-critical)
-        db.run('PRAGMA journal_mode = WAL', (err) => {
+        // Set DELETE journal mode for better container platform compatibility
+        db.run('PRAGMA journal_mode = DELETE', (err) => {
           if (err) {
-            console.warn('Could not set WAL mode (non-critical):', err.message);
-            console.log('Continuing with default journal mode');
-          } else {
-            console.log('SQLite WAL mode enabled');
+            console.error('Error setting DELETE journal mode:', err.message);
+            hasError = true;
+            reject(err);
+            return;
           }
+          console.log('SQLite DELETE journal mode enabled for container compatibility');
           checkCompletion();
         });
 
