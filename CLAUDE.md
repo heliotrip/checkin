@@ -154,14 +154,15 @@ docker-compose up -d
 ### Manual Testing Checklist
 - [ ] ID generation and URL sharing works
 - [ ] Slider interactions save correctly
-- [ ] Sparklines display historical trends
+- [ ] Sparklines display historical trends with data points and hover tooltips
+- [ ] Category descriptions appear on hover without layout shifts
 - [ ] CSV editor loads existing data
 - [ ] CSV upload/download functions
 - [ ] Name assignment and local storage
 - [ ] Docker deployment with data persistence
+- [ ] All automated tests pass: `npm test`
 
 ### Known Issues
-- No automated tests currently implemented
 - CSV validation only checks format, not business logic
 - LocalStorage data not synced across devices
 - No user authentication (by design)
@@ -235,13 +236,23 @@ SELECT * FROM checkins LIMIT 5;
 
 ## Recent Enhancements
 
-### Recent IDs Enhancement (Latest)
+### UI Enhancement & User Experience (Latest)
+- **Enhanced sparklines** with visible data points and hover tooltips showing exact values and dates
+- **Category descriptions** with contextual help that appears on hover without layout shifts
+- **Improved category design** with icons (🎯 Overall, 🌱 Wellbeing, 📈 Growth, 👥 Relationships, ⚡ Impact)
+- **Better slider UX** with inline emoji indicators (😞 😊) and descriptive category text
+- **Last check-in date display** for better user context
+- **Refined descriptions** focused on actionable, descriptive language rather than questions
+
+### Playwright Test Suite
+- **Comprehensive cross-browser testing** with Playwright covering 15 tests
+- **Core functionality coverage**: Homepage, Checkin Page, Recent IDs functionality
+- **Multi-browser support**: Chromium, Firefox, WebKit
+- **Test scripts**: `npm test`, `npm run test:headed`, `npm run test:ui`, `npm run test:report`
+- **Robust test selectors** using `getByRole` for better maintainability
+- Configuration in `playwright.config.js`
+
+### Recent IDs Enhancement
 - Removed 5-item limit from Recent IDs section in `client/src/HomePage.js:70`
 - Users can now access unlimited history of all visited team member IDs
 - Enhances team coordination by providing easy access to all team members
-
-### Playwright Test Suite (Latest)
-- Added comprehensive cross-browser testing with Playwright
-- 12 stable tests covering core functionality (Homepage, Checkin Page, Recent IDs)
-- Test scripts: `npm test`, `npm run test:headed`, `npm run test:ui`, `npm run test:report`
-- Configuration in `playwright.config.js` with multi-browser support (Chromium, Firefox, WebKit)
