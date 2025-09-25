@@ -24,35 +24,35 @@ const categories = [
     label: "Overall",
     icon: "🎯",
     color: "#1976d2",
-    description: "How are you feeling about work overall?"
+    description: "Your overall satisfaction and energy about work right now"
   },
   {
     key: "wellbeing",
     label: "Wellbeing",
     icon: "🌱",
     color: "#388e3c",
-    description: "How is your physical and mental health?"
+    description: "Physical energy, mental clarity, and emotional balance"
   },
   {
     key: "growth",
     label: "Growth",
     icon: "📈",
     color: "#f57c00",
-    description: "Are you learning/growing/progressing on your plan as you'd like to?"
+    description: "Learning new skills, developing capabilities, making progress"
   },
   {
     key: "relationships",
     label: "Relationships",
     icon: "👥",
     color: "#e91e63",
-    description: "How's team life and collaboration?"
+    description: "Connection with teammates, communication, and collaboration quality"
   },
   {
     key: "impact",
     label: "Impact",
     icon: "⚡",
     color: "#7b1fa2",
-    description: "Running, running to stand still, or falling behind?"
+    description: "Meaningful work, moving the needle, creating real value"
   },
 ];
 
@@ -77,6 +77,7 @@ function CheckinPage() {
   const [existingEntryForDate, setExistingEntryForDate] = useState(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [hoveredCategory, setHoveredCategory] = useState(null);
 
   const loadCurrentName = useCallback(() => {
     const storedNames = localStorage.getItem("checkin-id-names");
@@ -494,6 +495,8 @@ function CheckinPage() {
             <Paper
               key={category.key}
               elevation={1}
+              onMouseEnter={() => setHoveredCategory(category.key)}
+              onMouseLeave={() => setHoveredCategory(null)}
               sx={{
                 p: 3,
                 borderRadius: 2,
@@ -532,7 +535,7 @@ function CheckinPage() {
                 sx={{
                   width: "100%",
                   height: 50,
-                  mb: 2,
+                  mb: 3,
                   overflow: "visible",
                 }}
               >
@@ -589,16 +592,20 @@ function CheckinPage() {
                   </Typography>
                 </Box>
 
-                {/* Category description below slider */}
+                {/* Category description below slider - always reserve space */}
                 <Typography
                   variant="body2"
                   sx={{
                     textAlign: "center",
-                    color: "#666",
+                    color: hoveredCategory === category.key ? "#666" : "transparent",
                     mt: 2,
                     fontSize: "0.85rem",
                     fontStyle: "italic",
                     lineHeight: 1.3,
+                    minHeight: "2.4em", // Reserve space for 2 lines
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                 >
                   {category.description}

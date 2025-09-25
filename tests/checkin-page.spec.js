@@ -13,11 +13,11 @@ test.describe('Checkin Page', () => {
     const testUserId = generateTestUserId();
     await page.goto(`/${testUserId}`);
 
-    await expect(page.getByText('Overall')).toBeVisible();
-    await expect(page.getByText('Wellbeing')).toBeVisible();
-    await expect(page.getByText('Growth')).toBeVisible();
-    await expect(page.getByText('Relationships')).toBeVisible();
-    await expect(page.getByText('Impact')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Overall' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Wellbeing' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Growth' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Relationships' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Impact' })).toBeVisible();
   });
 
   test('should display sliders for each category', async ({ page }) => {
