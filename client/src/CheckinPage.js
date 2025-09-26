@@ -18,6 +18,67 @@ import {
 import { ContentCopy, Share, Edit } from "@mui/icons-material";
 import { Line } from "react-chartjs-2";
 
+// Emoji scale for slider values (1-10)
+const emojiScale = {
+  1: "😫", // Exhausted
+  2: "😢", // Crying
+  3: "😞", // Disappointed
+  4: "😕", // Slightly Frowning
+  5: "😐", // Neutral
+  6: "🙂", // Slightly Smiling
+  7: "😊", // Smiling
+  8: "😄", // Happy
+  9: "😁", // Grinning
+  10: "🤩" // Star-Struck/Fabulous
+};
+
+// Custom slider styles with emoji overlay using CSS
+const getEmojiSliderStyles = (categoryKey, values, categoryColor) => ({
+  color: categoryColor,
+  flex: 1,
+  "& .MuiSlider-track": {
+    height: 8,
+  },
+  "& .MuiSlider-rail": {
+    height: 8,
+  },
+  "& .MuiSlider-thumb": {
+    height: 28,
+    width: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    border: '2px solid currentColor',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+    position: 'relative',
+    '&:before': {
+      boxShadow: 'none',
+    },
+    '&:after': {
+      content: 'attr(data-emoji)',
+      position: 'absolute',
+      fontSize: '16px',
+      fontWeight: 'normal',
+      pointerEvents: 'none',
+      userSelect: 'none',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      zIndex: 10,
+      lineHeight: 1,
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    '&:hover': {
+      boxShadow: '0 0 0 8px rgba(25, 118, 210, 0.16)',
+    },
+    '&.Mui-focusVisible': {
+      boxShadow: '0 0 0 8px rgba(25, 118, 210, 0.16)',
+    },
+  }
+});
+
 const categories = [
   {
     key: "overall",
@@ -548,18 +609,15 @@ function CheckinPage() {
               </Box>
 
               <Box sx={{ px: 1, flexGrow: 1 }}>
-                {/* Slider with inline emoji indicators */}
+                {/* Slider with emoji thumb */}
                 <Box
                   sx={{
                     display: "flex",
                     alignItems: "center",
                     gap: 1.5,
+                    px: 2, // Add padding for thumb space
                   }}
                 >
-                  <Typography sx={{ fontSize: "1.2rem", flexShrink: 0 }}>
-                    😞
-                  </Typography>
-
                   <Slider
                     value={values[category.key]}
                     onChange={(e, newValue) =>
@@ -569,27 +627,15 @@ function CheckinPage() {
                     max={10}
                     step={1}
                     marks
-                    valueLabelDisplay="on"
+                    valueLabelDisplay="off"
                     disabled={!isAddingMode && !existingEntryForDate}
-                    sx={{
-                      color: category.color,
-                      flex: 1,
-                      "& .MuiSlider-thumb": {
-                        height: 24,
-                        width: 24,
-                      },
-                      "& .MuiSlider-track": {
-                        height: 8,
-                      },
-                      "& .MuiSlider-rail": {
-                        height: 8,
-                      },
+                    sx={getEmojiSliderStyles(category.key, values, category.color)}
+                    componentsProps={{
+                      thumb: {
+                        'data-emoji': emojiScale[values[category.key]] || "😐"
+                      }
                     }}
                   />
-
-                  <Typography sx={{ fontSize: "1.2rem", flexShrink: 0 }}>
-                    😊
-                  </Typography>
                 </Box>
 
                 {/* Category description below slider - always reserve space */}
