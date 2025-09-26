@@ -12,7 +12,8 @@ A 1-1 check-in tracking application for monitoring team progress over time acros
 - **Team Management**: Local name storage and ID sharing for easy team coordination
 - **Recent IDs**: Unlimited history of all visited team member IDs for easy navigation
 - **URL-based Sharing**: Share unique check-in URLs with team members
-- **Persistent Storage**: SQLite database with Docker volume for data persistence
+- **Dual Database Support**: SQLite for development/local deployments, Azure SQL Database for production cloud deployments
+- **Persistent Storage**: SQLite with Docker volumes or Azure SQL Database with automatic failover
 
 ## Quick Start
 
@@ -40,6 +41,59 @@ docker-compose up -d
 ```
 
 The application will be available at http://localhost:3001
+
+### Azure Container Apps Deployment (Recommended for Production)
+
+For cloud-native deployments with high availability:
+
+1. **Create Azure SQL Database**:
+```bash
+# Create resource group
+az group create --name checkin-rg --location eastus
+
+# Create SQL Server
+az sql server create --name checkin-sql --resource-group checkin-rg \
+  --location eastus --admin-user checkin_admin --admin-password YourSecurePassword123!
+
+# Create database
+az sql db create --server checkin-sql --resource-group checkin-rg \
+  --name checkin --service-objective Basic
+
+# Configure firewall for Azure services
+az sql server firewall-rule create --server checkin-sql --resource-group checkin-rg \
+  --name AllowAzure --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+```
+
+2. **Deploy to Container Apps**:
+```bash
+# Create Container Apps environment
+az containerapp env create --name checkin-env --resource-group checkin-rg --location eastus
+
+# Deploy with Azure SQL configuration
+az containerapp create \
+  --name checkin-app \
+  --resource-group checkin-rg \
+  --environment checkin-env \
+  --image your-registry/checkin:latest \
+  --target-port 3001 \
+  --ingress external \
+  --secrets azure-sql-server="checkin-sql.database.windows.net" \
+             azure-sql-database="checkin" \
+             azure-sql-username="checkin_admin" \
+             azure-sql-password="YourSecurePassword123!" \
+  --env-vars AZURE_SQL_SERVER=secretref:azure-sql-server \
+             AZURE_SQL_DATABASE=secretref:azure-sql-database \
+             AZURE_SQL_USERNAME=secretref:azure-sql-username \
+             AZURE_SQL_PASSWORD=secretref:azure-sql-password \
+             NODE_ENV=production \
+             ALLOWED_ORIGINS="https://your-domain.com"
+```
+
+**Benefits of Azure SQL Deployment:**
+- Eliminates SQLite locking issues on shared persistent volumes
+- Automatic scaling and high availability (99.9% SLA)
+- Built-in backup and point-in-time restore
+- Advanced security features and encryption
 
 ## Usage
 
@@ -78,12 +132,30 @@ date,overall,wellbeing,growth,relationships,impact
 - Share URLs directly with team members
 - Names are stored locally in your browser
 
-## Data Persistence
+## Database Configuration
 
-The application uses SQLite for data storage. In Docker deployments, data is persisted using a named volume (`checkin-data`) mounted to `/data` in the container.
+The application supports dual database architectures:
+
+### SQLite (Development/Local)
+- **Default**: Automatically used when no Azure SQL credentials are provided
+- **Local development**: Database stored at `./checkin.db`
+- **Docker deployment**: Uses named volume (`checkin-data`) mounted to `/data/checkin.db`
+- **Pros**: Simple setup, no external dependencies
+- **Cons**: File locking issues on shared storage systems
+
+### Azure SQL Database (Production)
+- **Auto-detection**: Used when all Azure SQL environment variables are provided
+- **Environment Variables**:
+  - `AZURE_SQL_SERVER` - Server hostname (e.g., `myserver.database.windows.net`)
+  - `AZURE_SQL_DATABASE` - Database name (e.g., `checkin`)
+  - `AZURE_SQL_USERNAME` - Database username
+  - `AZURE_SQL_PASSWORD` - Database password
+- **Pros**: High availability, automatic scaling, no file locking issues
+- **Recommended**: For production cloud deployments
 
 ## API Endpoints
 
+### Core API
 - `GET /api/generate-id` - Generate a new user GUID
 - `GET /api/checkins/:userId` - Get all check-ins for a user
 - `GET /api/checkins/:userId/:date` - Get check-in for specific user and date
@@ -91,13 +163,40 @@ The application uses SQLite for data storage. In Docker deployments, data is per
 - `PUT /api/checkins/:userId/bulk` - Replace all check-ins for a user with provided data
 - `DELETE /api/checkins/:userId/bulk` - Delete all check-ins for a user
 
+### Health Check & Monitoring
+- `GET /health` - Basic health check (returns 200 OK regardless of database status)
+- `GET /ready` - Readiness probe (returns 200 only when database is ready)
+
+**Docker Health Checks:**
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3001/health || exit 1
+```
+
+**Kubernetes Probes:**
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3001
+  initialDelaySeconds: 30
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 3001
+  initialDelaySeconds: 5
+  periodSeconds: 5
+```
+
 ## Technology Stack
 
 - **Frontend**: React, Material-UI, Chart.js
 - **Backend**: Node.js, Express
-- **Database**: SQLite
+- **Database**: SQLite (development) / Azure SQL Database (production)
+- **Security**: Helmet.js, rate limiting, input validation, CORS protection
 - **Testing**: Playwright (cross-browser end-to-end testing)
-- **Deployment**: Docker, Docker Compose
+- **Deployment**: Docker, Docker Compose, Azure Container Apps
 
 ## Testing
 
@@ -111,6 +210,45 @@ npm run test:report      # View HTML test reports
 ```
 
 The test suite includes stable end-to-end tests covering core functionality across Chromium, Firefox, and WebKit browsers.
+
+## Releases & Versioning
+
+This project follows [semantic versioning](https://semver.org/) and uses automated Docker builds with proper version tags.
+
+### Creating a Release
+
+Use the provided release script to create tagged releases:
+
+```bash
+# Create a patch release (1.0.0 -> 1.0.1)
+npm run release:patch
+
+# Create a minor release (1.0.0 -> 1.1.0)
+npm run release:minor
+
+# Create a major release (1.0.0 -> 2.0.0)
+npm run release:major
+
+# Or use the script directly for custom versions
+./scripts/release.sh patch 1.2.3
+```
+
+### Docker Images
+
+Each release automatically publishes multi-architecture Docker images to GitHub Container Registry:
+
+- `ghcr.io/heliotrip/checkin:latest` - Latest stable release
+- `ghcr.io/heliotrip/checkin:1.2.3` - Specific version
+- `ghcr.io/heliotrip/checkin:1.2` - Minor version series
+- `ghcr.io/heliotrip/checkin:1` - Major version series
+- `ghcr.io/heliotrip/checkin:main` - Main branch builds
+- `ghcr.io/heliotrip/checkin:dev` - Development builds
+
+**Supported Architectures:**
+- `linux/amd64` (x86_64)
+- `linux/arm64` (ARM64/AArch64)
+
+All images are signed with [Cosign](https://github.com/sigstore/cosign) for supply chain security.
 
 ## Authors
 
