@@ -33,21 +33,23 @@ const emojiScale = {
 };
 
 // Custom slider styles with emoji overlay using CSS
-const getEmojiSliderStyles = (categoryKey, values, categoryColor) => ({
-  color: categoryColor,
+const getEmojiSliderStyles = (categoryKey, values, categoryColor, isLoading = false) => ({
+  color: isLoading ? '#bbb' : categoryColor,
   flex: 1,
   "& .MuiSlider-track": {
     height: 8,
+    backgroundColor: isLoading ? '#ddd' : 'currentColor',
   },
   "& .MuiSlider-rail": {
     height: 8,
+    backgroundColor: isLoading ? '#f0f0f0' : undefined,
   },
   "& .MuiSlider-thumb": {
     height: 28,
     width: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    border: '2px solid currentColor',
-    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+    backgroundColor: isLoading ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.95)',
+    border: isLoading ? '2px solid #bbb' : '2px solid currentColor',
+    boxShadow: isLoading ? '0 2px 6px rgba(0,0,0,0.1)' : '0 2px 6px rgba(0,0,0,0.2)',
     position: 'relative',
     '&:before': {
       boxShadow: 'none',
@@ -69,12 +71,13 @@ const getEmojiSliderStyles = (categoryKey, values, categoryColor) => ({
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
+      opacity: isLoading ? 0.5 : 1,
     },
     '&:hover': {
-      boxShadow: '0 0 0 8px rgba(25, 118, 210, 0.16)',
+      boxShadow: isLoading ? '0 2px 6px rgba(0,0,0,0.1)' : '0 0 0 8px rgba(25, 118, 210, 0.16)',
     },
     '&.Mui-focusVisible': {
-      boxShadow: '0 0 0 8px rgba(25, 118, 210, 0.16)',
+      boxShadow: isLoading ? '0 2px 6px rgba(0,0,0,0.1)' : '0 0 0 8px rgba(25, 118, 210, 0.16)',
     },
   }
 });
@@ -130,13 +133,12 @@ function CheckinPage() {
   });
   const [historicalData, setHistoricalData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [autoSaveTimeout, setAutoSaveTimeout] = useState(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const [editNameDialog, setEditNameDialog] = useState(false);
   const [currentName, setCurrentName] = useState("");
   const [editingName, setEditingName] = useState("");
-  const [isAddingMode, setIsAddingMode] = useState(false);
   const [existingEntryForDate, setExistingEntryForDate] = useState(null);
-  const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [hoveredCategory, setHoveredCategory] = useState(null);
 
@@ -177,9 +179,8 @@ function CheckinPage() {
           relationships: data.relationships,
           impact: data.impact,
         });
-        setIsAddingMode(false);
       } else {
-        // No entry for this date - show historical data but don't allow editing yet
+        // No entry for this date - show default or previous values
         setExistingEntryForDate(null);
 
         // Get fresh historical data for displaying previous values
@@ -207,7 +208,6 @@ function CheckinPage() {
             impact: 5,
           });
         }
-        setIsAddingMode(false);
       }
     } catch (error) {
       console.error("Error fetching data for date:", error);
@@ -224,43 +224,18 @@ function CheckinPage() {
     loadCurrentName();
   }, [userId, date, navigate, fetchHistoricalData, fetchDataForDate, loadCurrentName]);
 
-  const handleSliderChange = (category, newValue) => {
-    setValues((prev) => ({
-      ...prev,
-      [category]: newValue,
-    }));
-  };
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeout) {
+        clearTimeout(autoSaveTimeout);
+      }
+    };
+  }, [autoSaveTimeout]);
 
-  const handleStartAdding = () => {
-    setIsAddingMode(true);
-    setValues({
-      overall: 5,
-      wellbeing: 5,
-      growth: 5,
-      relationships: 5,
-      impact: 5,
-    });
-  };
-
-  const handleCancelAdding = () => {
-    setIsAddingMode(false);
-    // Reset to previous values
-    if (existingEntryForDate) {
-      setValues({
-        overall: existingEntryForDate.overall,
-        wellbeing: existingEntryForDate.wellbeing,
-        growth: existingEntryForDate.growth,
-        relationships: existingEntryForDate.relationships,
-        impact: existingEntryForDate.impact,
-      });
-    } else {
-      fetchDataForDate();
-    }
-  };
-
-  const handleSave = async () => {
+  // Auto-save function with debouncing
+  const autoSave = useCallback(async (valuesToSave) => {
     setLoading(true);
-    setSaveSuccess(false);
     setSaveError("");
 
     try {
@@ -272,18 +247,14 @@ function CheckinPage() {
         body: JSON.stringify({
           userId,
           date,
-          ...values,
+          ...valuesToSave,
         }),
       });
 
       if (response.ok) {
         await fetchHistoricalData();
-        await fetchDataForDate(); // Refresh the current date data
-        setIsAddingMode(false);
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
+        await fetchDataForDate();
       } else {
-        // Try to get error details from response
         let errorMessage = `Failed to save check-in (${response.status})`;
         try {
           const errorData = await response.json();
@@ -292,20 +263,42 @@ function CheckinPage() {
           // If can't parse error response, use generic message
         }
         setSaveError(errorMessage);
-        setTimeout(() => setSaveError(""), 5000);
+        setTimeout(() => setSaveError(""), 3000);
       }
     } catch (error) {
-      // Network error or other fetch failure
       let errorMessage = "Unable to connect to server. Please check your internet connection and try again.";
       if (error.message) {
         errorMessage = `Save failed: ${error.message}`;
       }
       setSaveError(errorMessage);
-      setTimeout(() => setSaveError(""), 5000);
+      setTimeout(() => setSaveError(""), 3000);
     } finally {
       setLoading(false);
     }
+  }, [userId, date, fetchHistoricalData, fetchDataForDate]);
+
+  const handleSliderChange = (category, newValue) => {
+    const newValues = {
+      ...values,
+      [category]: newValue,
+    };
+
+    setValues(newValues);
+
+    // Clear existing timeout
+    if (autoSaveTimeout) {
+      clearTimeout(autoSaveTimeout);
+    }
+
+    // Set new timeout for auto-save (debounce for 1 second)
+    const timeout = setTimeout(() => {
+      autoSave(newValues);
+    }, 1000);
+
+    setAutoSaveTimeout(timeout);
   };
+
+
 
   const copyToClipboard = async () => {
     try {
@@ -600,7 +593,7 @@ function CheckinPage() {
                   overflow: "visible",
                 }}
               >
-                {!isAddingMode && historicalData.length > 1 && (
+                {historicalData.length > 1 && (
                   <Line
                     data={getSparklineData(category.key)}
                     options={sparklineOptions}
@@ -628,8 +621,7 @@ function CheckinPage() {
                     step={1}
                     marks
                     valueLabelDisplay="off"
-                    disabled={!isAddingMode && !existingEntryForDate}
-                    sx={getEmojiSliderStyles(category.key, values, category.color)}
+                    sx={getEmojiSliderStyles(category.key, values, category.color, loading)}
                     componentsProps={{
                       thumb: {
                         'data-emoji': emojiScale[values[category.key]] || "😐"
@@ -661,98 +653,7 @@ function CheckinPage() {
           ))}
         </Box>
 
-        <Box sx={{ mt: 3, textAlign: "center" }}>
-          {!isAddingMode && !existingEntryForDate && (
-            <Button
-              variant="contained"
-              size="large"
-              onClick={handleStartAdding}
-              sx={{
-                px: 6,
-                py: 1.5,
-                fontSize: "1.1rem",
-                fontWeight: "bold",
-                borderRadius: 2,
-                backgroundColor: "#2e7d32",
-                "&:hover": {
-                  backgroundColor: "#1b5e20",
-                },
-              }}
-            >
-              Add Check-in
-            </Button>
-          )}
 
-          {isAddingMode && (
-            <Box sx={{ display: "flex", justifyContent: "center", gap: 2 }}>
-              <Button
-                variant="outlined"
-                size="large"
-                onClick={handleCancelAdding}
-                disabled={loading}
-                sx={{
-                  px: 4,
-                  py: 1.5,
-                  fontSize: "1.1rem",
-                  borderRadius: 2,
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="contained"
-                size="large"
-                onClick={handleSave}
-                disabled={loading}
-                sx={{
-                  px: 4,
-                  py: 1.5,
-                  fontSize: "1.1rem",
-                  fontWeight: "bold",
-                  borderRadius: 2,
-                }}
-              >
-                {loading ? "Saving..." : "Save"}
-              </Button>
-            </Box>
-          )}
-
-          {existingEntryForDate && !isAddingMode && (
-            <Button
-              variant="contained"
-              size="large"
-              onClick={handleSave}
-              disabled={loading}
-              sx={{
-                px: 6,
-                py: 1.5,
-                fontSize: "1.1rem",
-                fontWeight: "bold",
-                borderRadius: 2,
-              }}
-            >
-              {loading ? "Updating..." : "Update Check-in"}
-            </Button>
-          )}
-        </Box>
-
-        {saveSuccess && (
-          <Box sx={{ mt: 2, textAlign: "center" }}>
-            <Typography
-              variant="body1"
-              sx={{
-                color: "#2e7d32",
-                fontWeight: "bold",
-                backgroundColor: "#e8f5e8",
-                padding: "8px 16px",
-                borderRadius: 1,
-                display: "inline-block",
-              }}
-            >
-              ✅ Check-in saved successfully!
-            </Typography>
-          </Box>
-        )}
 
         {saveError && (
           <Box sx={{ mt: 2, textAlign: "center" }}>

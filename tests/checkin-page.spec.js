@@ -29,19 +29,19 @@ test.describe('Checkin Page', () => {
     await expect(sliders).toHaveCount(5);
   });
 
-  test('should show Add Check-in button for new user', async ({ page }) => {
+  test('should have interactive sliders with auto-save', async ({ page }) => {
     const testUserId = generateTestUserId();
     await page.goto(`/${testUserId}`);
 
     // Wait for the page to finish loading and data fetching
     await page.waitForLoadState('networkidle');
 
-    // For a new user with no data, should show "Add Check-in" button
-    await expect(page.getByText('Add Check-in')).toBeVisible({ timeout: 10000 });
-
-    // Sliders should be disabled for new user
+    // Sliders should always be enabled (no save button needed with auto-save)
     const sliders = page.locator('.MuiSlider-root');
-    await expect(sliders.first()).toHaveClass(/Mui-disabled/);
+    await expect(sliders.first()).not.toHaveClass(/Mui-disabled/);
+
+    // Should have 5 interactive sliders for all categories
+    await expect(sliders).toHaveCount(5);
   });
 
 });
