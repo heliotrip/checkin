@@ -1,64 +1,128 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-const sqlite3 = require('sqlite3').verbose();
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs');
+const { DatabaseFactory } = require('./database');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
-app.use(bodyParser.json());
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"], // Required for React
+      styleSrc: ["'self'", "'unsafe-inline'"], // Required for React/MUI
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'", "https:"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
+}));
 
-// Determine database path - must be persistent in production
-function getDatabasePath() {
-  if (process.env.NODE_ENV !== 'production') {
-    return './checkin.db';
+// CORS configuration
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production'
+    ? process.env.ALLOWED_ORIGINS?.split(',') || ['https://yourdomain.com']
+    : ['http://localhost:3000', 'http://localhost:3001'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+};
+app.use(cors(corsOptions));
+
+// Rate limiting
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each IP to 1000 requests per windowMs
+  message: {
+    error: 'Too many requests from this IP, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 500, // Limit each IP to 500 API requests per windowMs
+  message: {
+    error: 'Too many API requests from this IP, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const strictLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 write operations per windowMs
+  message: {
+    error: 'Too many write requests from this IP, please try again later'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use(generalLimiter);
+app.use('/api', apiLimiter);
+
+// Body parsing with size limits
+app.use(bodyParser.json({
+  limit: '10mb',
+  verify: (req, res, buf, encoding) => {
+    // Store raw body for potential CSRF verification
+    req.rawBody = buf;
   }
+}));
 
-  // In production, MUST use /data (persistent volume)
-  const productionPath = '/data/checkin.db';
+app.use(bodyParser.urlencoded({
+  limit: '10mb',
+  extended: true
+}));
 
-  // Verify we can write to the mounted directory
-  try {
-    const testFile = '/data/.write-test';
-    fs.writeFileSync(testFile, 'test');
-    fs.unlinkSync(testFile);
-    console.log('Verified write access to /data directory');
-    console.log(`Database will be created at: ${productionPath}`);
-
-    // Debug: Show filesystem info about /data
-    try {
-      const stats = fs.statSync('/data');
-      console.log(`/data directory stats: uid=${stats.uid}, gid=${stats.gid}, mode=${stats.mode.toString(8)}`);
-    } catch (e) {
-      console.warn('Could not get /data stats:', e.message);
-    }
-
-    return productionPath;
-  } catch (error) {
-    console.error('CRITICAL: Cannot write to /data directory in production!');
-    console.error('This will result in data loss as container filesystem is ephemeral.');
-    console.error('Error:', error.message);
-    console.error('Ensure the /data volume is mounted with proper permissions.');
-    console.error('Container will now exit to prevent data loss.');
-
-    // Exit immediately to prevent running with ephemeral storage
-    process.exit(1);
-  }
-}
-
-const dbPath = getDatabasePath();
-
-// Database initialization state
-let db = null;
+// Database instance and state management
+let database = null;
 let isDbReady = false;
 let isDbInitializing = false;
 let dbInitPromise = null;
 let requestQueue = [];
-let isContainerReady = false;
+
+// Only perform /data directory verification for SQLite in production
+async function verifyDataDirectoryIfNeeded() {
+  // If we're using Azure SQL, skip the /data directory checks
+  const hasAzureConfig = process.env.AZURE_SQL_SERVER &&
+                        process.env.AZURE_SQL_DATABASE &&
+                        process.env.AZURE_SQL_USERNAME &&
+                        process.env.AZURE_SQL_PASSWORD;
+
+  if (hasAzureConfig) {
+    console.log('Using Azure SQL Database - skipping /data directory verification');
+    return;
+  }
+
+  // Only verify /data in production for SQLite
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      const testFile = '/data/.write-test';
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      console.log('Verified write access to /data directory for SQLite');
+    } catch (error) {
+      console.error('CRITICAL: Cannot write to /data directory in production!');
+      console.error('This will result in data loss as container filesystem is ephemeral.');
+      console.error('Error:', error.message);
+      console.error('Ensure the /data volume is mounted with proper permissions.');
+      process.exit(1);
+    }
+  }
+}
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -66,7 +130,7 @@ async function sleep(ms) {
 
 // Lazy database initialization - called on first API request
 async function initializeDatabaseLazy() {
-  if (isDbReady) return db;
+  if (isDbReady) return database;
 
   // If already initializing, wait for it to complete
   if (isDbInitializing && dbInitPromise) {
@@ -84,167 +148,35 @@ async function initializeDatabaseLazy() {
       try {
         console.log(`Attempting to initialize database (attempt ${retryCount + 1}/${maxRetries + 1})`);
 
-        // Ensure the directory exists
-        const dbDir = path.dirname(dbPath);
-        if (!fs.existsSync(dbDir)) {
-          fs.mkdirSync(dbDir, { recursive: true });
-          console.log(`Created database directory: ${dbDir}`);
-        }
+        // Create database adapter using factory
+        database = DatabaseFactory.create();
 
-        // Create database connection
-        db = await new Promise((resolve, reject) => {
-          const database = new sqlite3.Database(dbPath, (err) => {
-            if (err) {
-              console.error('Error opening database:', err.message);
-              reject(err);
-            } else {
-              console.log(`Connected to SQLite database at ${dbPath}`);
+        // Initialize the database
+        await database.initialize();
 
-              // Debug: Check if database file was created and show /data contents
-              try {
-                if (fs.existsSync(dbPath)) {
-                  const dbStats = fs.statSync(dbPath);
-                  console.log(`Database file created: size=${dbStats.size} bytes, uid=${dbStats.uid}, gid=${dbStats.gid}`);
-                } else {
-                  console.log('Database file does not exist yet');
-                }
-
-                // Show all files in /data directory
-                const dataFiles = fs.readdirSync('/data');
-                console.log(`Files in /data directory: ${dataFiles.join(', ')}`);
-              } catch (e) {
-                console.warn('Could not check database file stats:', e.message);
-              }
-
-              resolve(database);
-            }
-          });
-        });
-
-        // Configure database
-        await new Promise((resolve, reject) => {
-          db.serialize(() => {
-            let completed = 0;
-            const total = 3; // DELETE journal mode, busy timeout, table creation + write test
-            let hasError = false;
-
-            function checkCompletion() {
-              completed++;
-              if (completed === total && !hasError) {
-                console.log('Database configuration completed successfully');
-                resolve();
-              }
-            }
-
-            // Set DELETE journal mode for better container platform compatibility
-            db.run('PRAGMA journal_mode = DELETE', (err) => {
-              if (err) {
-                console.error('Error setting DELETE journal mode:', err.message);
-                hasError = true;
-                reject(err);
-                return;
-              }
-              console.log('SQLite DELETE journal mode enabled for container compatibility');
-              checkCompletion();
-            });
-
-            // Set busy timeout to 30 seconds
-            db.run('PRAGMA busy_timeout = 30000', (err) => {
-              if (err) {
-                console.error('Error setting busy timeout:', err.message);
-                hasError = true;
-                reject(err);
-                return;
-              }
-              console.log('SQLite busy timeout set to 30 seconds');
-              checkCompletion();
-            });
-
-            // Create table (critical)
-            db.run(`CREATE TABLE IF NOT EXISTS checkins (
-              id TEXT PRIMARY KEY,
-              user_id TEXT NOT NULL,
-              date TEXT NOT NULL,
-              overall INTEGER NOT NULL,
-              wellbeing INTEGER NOT NULL,
-              growth INTEGER NOT NULL,
-              relationships INTEGER NOT NULL,
-              impact INTEGER NOT NULL,
-              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-              UNIQUE(user_id, date)
-            )`, (err) => {
-              if (err) {
-                console.error('Error creating table:', err.message);
-                hasError = true;
-                reject(err);
-                return;
-              }
-              console.log('Database table initialized successfully');
-
-              // Test actual database write capability
-              const testId = 'test-write-capability-' + Date.now();
-              db.run(`INSERT INTO checkins (id, user_id, date, overall, wellbeing, growth, relationships, impact)
-                       VALUES (?, 'test-user', '1900-01-01', 1, 1, 1, 1, 1)`, [testId], (err) => {
-                if (err) {
-                  console.error('CRITICAL: Database is read-only - cannot perform write operations!');
-                  console.error('Error:', err.message);
-                  console.error('This indicates a filesystem or database permission issue.');
-                  hasError = true;
-                  reject(new Error('Database write test failed: ' + err.message));
-                  return;
-                }
-
-                // Clean up test record
-                db.run(`DELETE FROM checkins WHERE id = ?`, [testId], (err) => {
-                  if (err) {
-                    console.warn('Could not clean up test record, but write test passed:', err.message);
-                  }
-                  console.log('Database write test passed successfully');
-                  checkCompletion();
-                });
-              });
-            });
-          });
-        });
-
-        console.log('Database initialization completed successfully');
-
-        // Debug: Show final database file info
-        try {
-          if (fs.existsSync(dbPath)) {
-            const dbStats = fs.statSync(dbPath);
-            console.log(`Final database file: ${dbPath}, size=${dbStats.size} bytes`);
-
-            // Show all files in /data directory after initialization
-            const dataFiles = fs.readdirSync('/data');
-            console.log(`Final /data contents: ${dataFiles.join(', ')}`);
-          }
-        } catch (e) {
-          console.warn('Could not check final database stats:', e.message);
-        }
+        // Test the connection with a simple query
+        console.log('Testing database connection...');
+        const testResult = await database.getCheckins('test-connection-check');
+        console.log('Database connection test successful');
 
         isDbReady = true;
         isDbInitializing = false;
 
-        // Process queued requests
+        // Process any queued requests
         await processQueuedRequests();
 
-        return db;
+        console.log('Database initialization completed successfully');
+        return database;
 
       } catch (error) {
         console.error(`Database initialization failed (attempt ${retryCount + 1}):`, error.message);
-
-        if (db) {
-          db.close();
-          db = null;
-        }
 
         if (retryCount < maxRetries) {
           const delay = baseDelay * Math.pow(2, retryCount); // Exponential backoff
           console.log(`Retrying in ${delay}ms...`);
           await sleep(delay);
         } else {
-          console.error('Max retries exceeded. Database initialization failed.');
+          console.error('Database initialization failed after all retries');
           isDbInitializing = false;
           throw error;
         }
@@ -257,6 +189,8 @@ async function initializeDatabaseLazy() {
 
 // Process queued requests after database initialization
 async function processQueuedRequests() {
+  if (requestQueue.length === 0) return;
+
   console.log(`Processing ${requestQueue.length} queued requests...`);
 
   for (const queuedRequest of requestQueue) {
@@ -275,7 +209,7 @@ async function processQueuedRequests() {
 
 // Middleware to handle database initialization and request queuing
 async function ensureDatabaseReady(req, res, next) {
-  if (isDbReady && db) {
+  if (isDbReady && database) {
     // Database is ready, proceed normally
     return next();
   }
@@ -315,224 +249,185 @@ async function ensureDatabaseReady(req, res, next) {
       });
     });
   }
-
-  // Fallback - should not reach here
-  return res.status(503).json({
-    error: 'Database not ready. Please try again in a moment.',
-    ready: false
-  });
 }
 
-app.get('/api/checkins/:userId', ensureDatabaseReady, (req, res) => {
-  const { userId } = req.params;
+// Apply database middleware to all API routes
+app.use('/api', ensureDatabaseReady);
 
-  db.all(
-    'SELECT * FROM checkins WHERE user_id = ? ORDER BY date ASC',
-    [userId],
-    (err, rows) => {
-      if (err) {
-        console.error(`Error fetching checkins for user ${userId}:`, err.message);
-        res.status(500).json({ error: 'Failed to fetch check-ins', details: err.message });
-        return;
-      }
-      res.json(rows);
-    }
-  );
-});
-
-app.get('/api/checkins/:userId/:date', ensureDatabaseReady, (req, res) => {
-  const { userId, date } = req.params;
-
-  db.get(
-    'SELECT * FROM checkins WHERE user_id = ? AND date = ?',
-    [userId, date],
-    (err, row) => {
-      if (err) {
-        console.error(`Error fetching checkin for user ${userId} on ${date}:`, err.message);
-        res.status(500).json({ error: 'Failed to fetch check-in', details: err.message });
-        return;
-      }
-      res.json(row || null);
-    }
-  );
-});
-
-app.post('/api/checkins', ensureDatabaseReady, (req, res) => {
-  const { userId, date, overall, wellbeing, growth, relationships, impact } = req.body;
-
-  if (!userId || !date || overall == null || wellbeing == null || growth == null || relationships == null || impact == null) {
-    res.status(400).json({ error: 'Missing required fields' });
-    return;
-  }
-
-  const id = uuidv4();
-
-  db.run(
-    `INSERT OR REPLACE INTO checkins
-     (id, user_id, date, overall, wellbeing, growth, relationships, impact)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, userId, date, overall, wellbeing, growth, relationships, impact],
-    function(err) {
-      if (err) {
-        console.error(`Error saving checkin for user ${userId} on ${date}:`, err.message);
-        res.status(500).json({ error: 'Failed to save check-in', details: err.message });
-        return;
-      }
-      res.json({
-        id: this.lastID || id,
-        userId,
-        date,
-        overall,
-        wellbeing,
-        growth,
-        relationships,
-        impact
-      });
-    }
-  );
-});
-
-app.put('/api/checkins/:userId/bulk', ensureDatabaseReady, (req, res) => {
-  const { userId } = req.params;
-  const { data } = req.body;
-
-  if (!Array.isArray(data)) {
-    res.status(400).json({ error: 'Data must be an array' });
-    return;
-  }
-
-  console.log(`Starting bulk update for user ${userId} with ${data.length} records`);
-
-  db.serialize(() => {
-    db.run('BEGIN TRANSACTION');
-
-    db.run('DELETE FROM checkins WHERE user_id = ?', [userId], (err) => {
-      if (err) {
-        console.error(`Error clearing existing data for user ${userId}:`, err.message);
-        db.run('ROLLBACK');
-        res.status(500).json({ error: 'Failed to clear existing data', details: err.message });
-        return;
-      }
-
-      if (data.length === 0) {
-        db.run('COMMIT');
-        res.json({ message: 'All data deleted successfully' });
-        return;
-      }
-
-      let completed = 0;
-      let hasError = false;
-
-      data.forEach((row) => {
-        const id = uuidv4();
-        db.run(
-          `INSERT INTO checkins
-           (id, user_id, date, overall, wellbeing, growth, relationships, impact)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [id, userId, row.date, row.overall, row.wellbeing, row.growth, row.relationships, row.impact],
-          (err) => {
-            if (err && !hasError) {
-              hasError = true;
-              console.error(`Error inserting bulk data for user ${userId}:`, err.message);
-              db.run('ROLLBACK');
-              res.status(500).json({ error: 'Failed to insert data', details: err.message });
-              return;
-            }
-
-            completed++;
-            if (completed === data.length && !hasError) {
-              db.run('COMMIT');
-              console.log(`Successfully saved ${data.length} records for user ${userId}`);
-              res.json({ message: `Successfully saved ${data.length} records` });
-            }
-          }
-        );
-      });
-    });
-  });
-});
-
-app.delete('/api/checkins/:userId/bulk', ensureDatabaseReady, (req, res) => {
-  const { userId } = req.params;
-
-  db.run('DELETE FROM checkins WHERE user_id = ?', [userId], function(err) {
-    if (err) {
-      console.error(`Error deleting data for user ${userId}:`, err.message);
-      res.status(500).json({ error: 'Failed to delete records', details: err.message });
-      return;
-    }
-    console.log(`Deleted ${this.changes} records for user ${userId}`);
-    res.json({ message: `Deleted ${this.changes} records` });
-  });
-});
-
-app.get('/api/generate-id', (req, res) => {
-  const newId = uuidv4();
-  res.json({ userId: newId });
-});
-
-// Health check endpoint - shows database status
+// Health check endpoint (doesn't require database)
 app.get('/health', (req, res) => {
-  if (isDbReady && db) {
-    // Database is fully ready - do connectivity test
-    db.get('SELECT 1 as test', (err, row) => {
-      if (err) {
-        console.error('Health check database query failed:', err.message);
-        res.status(503).json({
-          status: 'unhealthy',
-          database: 'error',
-          error: err.message,
-          timestamp: new Date().toISOString()
-        });
-        return;
-      }
-      res.json({
-        status: 'healthy',
-        database: 'ready',
-        timestamp: new Date().toISOString()
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    database: isDbReady ? 'ready' : 'initializing'
+  });
+});
+
+// Ready check endpoint (requires database to be ready)
+app.get('/ready', async (req, res) => {
+  try {
+    if (!isDbReady || !database) {
+      return res.status(503).json({
+        status: 'not ready',
+        reason: 'Database not initialized'
       });
-    });
-  } else if (isDbInitializing) {
-    // Database is initializing - container is working but not fully ready
-    res.json({
-      status: 'healthy',
-      database: 'initializing',
-      queuedRequests: requestQueue.length,
+    }
+
+    // Test database connection
+    await database.getCheckins('readiness-check');
+
+    res.status(200).json({
+      status: 'ready',
       timestamp: new Date().toISOString()
     });
-  } else if (isContainerReady) {
-    // Container is ready but database not yet initialized
-    res.json({
-      status: 'healthy',
-      database: 'not_initialized',
-      timestamp: new Date().toISOString()
-    });
-  } else {
+  } catch (error) {
     res.status(503).json({
-      status: 'unhealthy',
-      database: 'not_ready',
-      timestamp: new Date().toISOString()
+      status: 'not ready',
+      reason: error.message
     });
   }
 });
 
-// Readiness check endpoint - for container orchestration (fast startup)
-app.get('/ready', (req, res) => {
-  if (isContainerReady) {
-    // Container can accept traffic even if database isn't ready yet
-    res.json({
-      ready: true,
-      database: isDbReady ? 'ready' : (isDbInitializing ? 'initializing' : 'not_initialized'),
-      timestamp: new Date().toISOString()
-    });
-  } else {
-    res.status(503).json({
-      ready: false,
-      timestamp: new Date().toISOString()
-    });
+// Generate a new user ID
+app.get('/api/generate-id', (req, res) => {
+  const userId = uuidv4();
+  res.json({ userId });
+});
+
+// Get all checkins for a user
+app.get('/api/checkins/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const checkins = await database.getCheckins(userId);
+    res.json(checkins);
+  } catch (error) {
+    console.error('Error getting checkins:', error.message);
+    res.status(500).json({ error: 'Failed to retrieve checkins' });
   }
 });
 
+// Get a specific checkin for a user and date
+app.get('/api/checkins/:userId/:date', async (req, res) => {
+  try {
+    const { userId, date } = req.params;
+    const checkin = await database.getCheckin(userId, date);
+
+    // Return null for non-existent checkins (not a 404 error)
+    // This maintains compatibility with the frontend logic
+    res.json(checkin);
+  } catch (error) {
+    console.error('Error getting checkin:', error.message);
+    res.status(500).json({ error: 'Failed to retrieve checkin' });
+  }
+});
+
+// Input validation and sanitization
+function validateAndSanitizeInput(req, res, next) {
+  // Validate UUID format for userId parameters
+  if (req.params.userId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.userId)) {
+    return res.status(400).json({ error: 'Invalid userId format' });
+  }
+
+  // Validate date format (YYYY-MM-DD)
+  if (req.params.date && !/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) {
+    return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+  }
+
+  // Sanitize strings to prevent potential issues
+  if (req.body) {
+    for (const key in req.body) {
+      if (typeof req.body[key] === 'string') {
+        req.body[key] = req.body[key].trim();
+        // Basic XSS prevention - remove HTML tags
+        req.body[key] = req.body[key].replace(/<[^>]*>/g, '');
+      }
+    }
+  }
+
+  next();
+}
+
+// Apply input validation to API routes
+app.use('/api', validateAndSanitizeInput);
+
+// Create or update a checkin
+app.post('/api/checkins', strictLimiter, async (req, res) => {
+  try {
+    const { userId, date, overall, wellbeing, growth, relationships, impact } = req.body;
+
+    // Validate required fields
+    if (!userId || !date || overall === undefined || wellbeing === undefined ||
+        growth === undefined || relationships === undefined || impact === undefined) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate UUID format for userId
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+      return res.status(400).json({ error: 'Invalid userId format' });
+    }
+
+    // Validate date format (YYYY-MM-DD)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+    }
+
+    // Validate date is not in the future (allow today)
+    const inputDate = new Date(date);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); // End of today
+    if (inputDate > today) {
+      return res.status(400).json({ error: 'Date cannot be in the future' });
+    }
+
+    // Validate values are within range (1-10)
+    const values = { overall, wellbeing, growth, relationships, impact };
+    for (const [key, value] of Object.entries(values)) {
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 10) {
+        return res.status(400).json({
+          error: `Invalid ${key} value. Must be an integer between 1 and 10.`
+        });
+      }
+    }
+
+    const result = await database.createOrUpdateCheckin(userId, date, values);
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('Error creating/updating checkin:', error.message);
+    res.status(500).json({ error: 'Failed to save checkin' });
+  }
+});
+
+// Bulk replace all checkins for a user (used by CSV import)
+app.put('/api/checkins/:userId/bulk', strictLimiter, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { data } = req.body;
+
+    if (!Array.isArray(data)) {
+      return res.status(400).json({ error: 'Data must be an array' });
+    }
+
+    const result = await database.bulkReplaceCheckins(userId, data);
+    res.json(result);
+  } catch (error) {
+    console.error('Error bulk replacing checkins:', error.message);
+    res.status(500).json({ error: 'Failed to bulk update checkins' });
+  }
+});
+
+// Delete all checkins for a user
+app.delete('/api/checkins/:userId/bulk', strictLimiter, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await database.deleteAllCheckins(userId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error deleting checkins:', error.message);
+    res.status(500).json({ error: 'Failed to delete checkins' });
+  }
+});
+
+// Serve React static files in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/build')));
 
@@ -541,14 +436,44 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Fast container startup - no database initialization
+// Graceful shutdown
+async function gracefulShutdown(signal) {
+  console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
+
+  try {
+    if (database) {
+      console.log('Closing database connection...');
+      await database.close();
+    }
+
+    console.log('Database connection closed successfully');
+    process.exit(0);
+  } catch (error) {
+    console.error('Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+}
+
+// Handle shutdown signals
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
+// Start server
 async function startServer() {
   try {
-    console.log('Starting server with fast readiness approach...');
-
-    // Only verify filesystem access, not database initialization
-    console.log('Container readiness check completed - filesystem access verified');
-    isContainerReady = true;
+    // Verify data directory if needed (only for SQLite in production)
+    await verifyDataDirectoryIfNeeded();
 
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
@@ -560,42 +485,6 @@ async function startServer() {
     console.error('Failed to start server:', error.message);
     process.exit(1);
   }
-}
-
-// Graceful shutdown handling
-process.on('SIGTERM', () => {
-  console.log('Received SIGTERM, shutting down gracefully...');
-  gracefulShutdown();
-});
-
-process.on('SIGINT', () => {
-  console.log('Received SIGINT, shutting down gracefully...');
-  gracefulShutdown();
-});
-
-function gracefulShutdown() {
-  console.log('Starting graceful shutdown...');
-
-  // Close database connection if it exists
-  if (db) {
-    db.close((err) => {
-      if (err) {
-        console.error('Error closing database:', err.message);
-      } else {
-        console.log('Database connection closed');
-      }
-      process.exit(0);
-    });
-  } else {
-    console.log('No database connection to close');
-    process.exit(0);
-  }
-
-  // Force exit after 10 seconds if graceful shutdown fails
-  setTimeout(() => {
-    console.log('Forcing exit after timeout');
-    process.exit(1);
-  }, 10000);
 }
 
 startServer();

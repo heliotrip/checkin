@@ -357,7 +357,7 @@ function CheckinPage() {
             return context[0].label;
           },
           label: function(context) {
-            return `${context.parsed.y}/10`;
+            return `${context.parsed.y}`;
           }
         }
       },

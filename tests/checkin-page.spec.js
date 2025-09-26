@@ -32,8 +32,11 @@ test.describe('Checkin Page', () => {
     const testUserId = generateTestUserId();
     await page.goto(`/${testUserId}`);
 
+    // Wait for the page to finish loading and data fetching
+    await page.waitForLoadState('networkidle');
+
     // For a new user with no data, should show "Add Check-in" button
-    await expect(page.getByText('Add Check-in')).toBeVisible();
+    await expect(page.getByText('Add Check-in')).toBeVisible({ timeout: 10000 });
 
     // Sliders should be disabled for new user
     const sliders = page.locator('input[type="range"]');
