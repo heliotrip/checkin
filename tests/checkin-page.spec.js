@@ -24,7 +24,8 @@ test.describe('Checkin Page', () => {
     const testUserId = generateTestUserId();
     await page.goto(`/${testUserId}`);
 
-    const sliders = page.locator('input[type="range"]');
+    // Look for MUI Slider components instead of input[type="range"]
+    const sliders = page.locator('.MuiSlider-root');
     await expect(sliders).toHaveCount(5);
   });
 
@@ -39,8 +40,8 @@ test.describe('Checkin Page', () => {
     await expect(page.getByText('Add Check-in')).toBeVisible({ timeout: 10000 });
 
     // Sliders should be disabled for new user
-    const sliders = page.locator('input[type="range"]');
-    await expect(sliders.first()).toBeDisabled();
+    const sliders = page.locator('.MuiSlider-root');
+    await expect(sliders.first()).toHaveClass(/Mui-disabled/);
   });
 
 });

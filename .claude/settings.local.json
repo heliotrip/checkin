@@ -15,7 +15,11 @@
       "Bash(mkdir:*)",
       "Bash(npm test)",
       "Bash(npm run dev:*)",
-      "Bash(npx playwright test:*)"
+      "Bash(npx playwright test:*)",
+      "Bash(npm run server:*)",
+      "Bash(curl:*)",
+      "Bash(npm test:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []

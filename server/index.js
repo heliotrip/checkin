@@ -11,6 +11,14 @@ const { DatabaseFactory } = require('./database');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Configure trust proxy for rate limiting and security
+// In development, trust localhost; in production, trust first proxy
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1); // Trust first proxy
+} else {
+  app.set('trust proxy', 'loopback'); // Trust localhost in development
+}
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {

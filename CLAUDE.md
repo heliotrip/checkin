@@ -138,11 +138,75 @@ docker-compose up -d
 
 ## Deployment Notes
 
-### Railway Deployment
+### Azure Container Apps Deployment (Recommended)
+
+#### Prerequisites
+1. Azure SQL Database (Basic/Standard tier minimum)
+2. Azure Container Registry or Docker Hub
+3. Azure Container Apps environment
+
+#### Step 1: Create Azure SQL Database
+```bash
+# Create resource group
+az group create --name checkin-rg --location eastus
+
+# Create SQL Server
+az sql server create --name checkin-sql --resource-group checkin-rg --location eastus --admin-user checkin_admin --admin-password YourSecurePassword123!
+
+# Create database
+az sql db create --server checkin-sql --resource-group checkin-rg --name checkin --service-objective Basic
+
+# Configure firewall (allow Azure services)
+az sql server firewall-rule create --server checkin-sql --resource-group checkin-rg --name AllowAzure --start-ip-address 0.0.0.0 --end-ip-address 0.0.0.0
+```
+
+#### Step 2: Build and Push Container
+```bash
+# Build for Azure
+docker build -t checkin:latest .
+
+# Tag and push to registry
+docker tag checkin:latest youracr.azurecr.io/checkin:latest
+docker push youracr.azurecr.io/checkin:latest
+```
+
+#### Step 3: Deploy Container App with Secrets
+```bash
+# Create Container Apps environment
+az containerapp env create --name checkin-env --resource-group checkin-rg --location eastus
+
+# Create Container App with database secrets
+az containerapp create \
+  --name checkin-app \
+  --resource-group checkin-rg \
+  --environment checkin-env \
+  --image youracr.azurecr.io/checkin:latest \
+  --target-port 3001 \
+  --ingress external \
+  --secrets azure-sql-server="checkin-sql.database.windows.net" \
+             azure-sql-database="checkin" \
+             azure-sql-username="checkin_admin" \
+             azure-sql-password="YourSecurePassword123!" \
+  --env-vars AZURE_SQL_SERVER=secretref:azure-sql-server \
+             AZURE_SQL_DATABASE=secretref:azure-sql-database \
+             AZURE_SQL_USERNAME=secretref:azure-sql-username \
+             AZURE_SQL_PASSWORD=secretref:azure-sql-password \
+             NODE_ENV=production \
+             ALLOWED_ORIGINS="https://your-domain.com"
+```
+
+#### Benefits of Azure SQL Deployment
+- **No persistent volume issues** - eliminates SQLite locking on shared storage
+- **Automatic scaling** - Azure SQL handles concurrent connections
+- **Built-in backup** - Point-in-time restore available
+- **High availability** - 99.9% SLA with automatic failover
+- **Security** - Built-in encryption, firewall, threat detection
+
+### Railway Deployment (SQLite)
 - Uses `railway.toml` for configuration
 - Builds React app and serves via Express static middleware
 - Environment variables: `NODE_ENV=production`
-- Database path: `/data/checkin.db` (production) vs `./checkin.db` (development)
+- Database: Uses SQLite with local volume mounting
 
 ### File Structure Requirements
 - `client/public` folder MUST exist for React build
@@ -194,19 +258,36 @@ SELECT * FROM checkins LIMIT 5;
 
 ## Environment Variables
 
+### Database Configuration (Optional - Azure SQL Database)
+- `AZURE_SQL_SERVER` - Azure SQL Server hostname (e.g., `myserver.database.windows.net`)
+- `AZURE_SQL_DATABASE` - Database name (e.g., `checkin`)
+- `AZURE_SQL_USERNAME` - Database username (e.g., `checkin_admin`)
+- `AZURE_SQL_PASSWORD` - Database password (store in Azure Container Apps secrets)
+
+### Security Configuration
+- `ALLOWED_ORIGINS` - Comma-separated list of allowed CORS origins for production (e.g., `https://mydomain.com,https://www.mydomain.com`)
+
 ### Development
 - `PORT=3001` (backend server port)
 - `NODE_ENV=development`
+- No Azure SQL variables → Automatically uses SQLite at `./checkin.db`
 
-### Production
+### Production (SQLite)
 - `NODE_ENV=production`
-- Database path automatically set to `/data/checkin.db`
-- Static files served from `client/build`
+- No Azure SQL variables → Uses SQLite at `/data/checkin.db` (requires persistent volume)
+
+### Production (Azure SQL)
+- `NODE_ENV=production`
+- All 4 Azure SQL variables set → Uses Azure SQL Database
+- No persistent volume required
 
 ## Dependencies
 
 ### Critical Dependencies
-- `sqlite3` - Database operations
+- `sqlite3` - SQLite database operations (local/development)
+- `mssql` - Azure SQL Database operations (cloud production)
+- `helmet` - Security headers and protection
+- `express-rate-limit` - Rate limiting and abuse prevention
 - `uuid` - GUID generation
 - `express` - Web server
 - `react-router-dom` - Frontend routing
@@ -236,7 +317,15 @@ SELECT * FROM checkins LIMIT 5;
 
 ## Recent Enhancements
 
-### UI Enhancement & User Experience (Latest)
+### Dual Database Support & Security (Latest)
+- **Azure SQL Database support** alongside SQLite for cloud deployments
+- **Automatic database selection** based on environment variables (Azure credentials → Azure SQL, otherwise SQLite)
+- **Database abstraction layer** with DatabaseFactory pattern for seamless switching
+- **Enhanced security** with Helmet.js, rate limiting, input validation, and XSS protection
+- **Production-ready deployment** for Azure Container Apps with secrets management
+- **Solves persistent volume issues** - no more SQLite locking problems on Azure File Storage
+
+### UI Enhancement & User Experience
 - **Enhanced sparklines** with visible data points and hover tooltips showing exact values and dates
 - **Category descriptions** with contextual help that appears on hover without layout shifts
 - **Improved category design** with icons (🎯 Overall, 🌱 Wellbeing, 📈 Growth, 👥 Relationships, ⚡ Impact)
@@ -256,3 +345,4 @@ SELECT * FROM checkins LIMIT 5;
 - Removed 5-item limit from Recent IDs section in `client/src/HomePage.js:70`
 - Users can now access unlimited history of all visited team member IDs
 - Enhances team coordination by providing easy access to all team members
+- To mnimize unnecessary CI runs, don't automatically push changes after every check-in.

@@ -454,14 +454,14 @@ function CheckinPage() {
   };
 
   return (
-    <Container maxWidth="md" sx={{ py: 4 }}>
-      <Paper elevation={3} sx={{ p: 4, borderRadius: 2 }}>
+    <Container maxWidth="md" sx={{ py: 2 }}>
+      <Paper elevation={3} sx={{ p: 3, borderRadius: 2 }}>
         <Box
           sx={{
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            mb: 3,
+            mb: 2,
           }}
         >
           <Typography
@@ -493,7 +493,7 @@ function CheckinPage() {
           sx={{
             textAlign: "center",
             color: "#666",
-            mb: 2,
+            mb: 1.5,
           }}
         >
           Track your 1-1 check-ins over time
@@ -507,14 +507,14 @@ function CheckinPage() {
               textAlign: "center",
               color: "#1976d2",
               fontWeight: "bold",
-              mb: 2,
+              mb: 1.5,
             }}
           >
             {currentName}
           </Typography>
         )}
 
-        <Box sx={{ mb: 3 }}>
+        <Box sx={{ mb: 2 }}>
           <TextField
             label="Date"
             type="date"
@@ -548,7 +548,7 @@ function CheckinPage() {
               xs: "1fr",
               sm: "1fr 1fr",
             },
-            gap: 2,
+            gap: 1.5,
             maxWidth: "100%",
           }}
         >
@@ -559,7 +559,7 @@ function CheckinPage() {
               onMouseEnter={() => setHoveredCategory(category.key)}
               onMouseLeave={() => setHoveredCategory(null)}
               sx={{
-                p: 3,
+                p: 2.5,
                 borderRadius: 2,
                 display: "flex",
                 flexDirection: "column",
@@ -595,8 +595,8 @@ function CheckinPage() {
               <Box
                 sx={{
                   width: "100%",
-                  height: 50,
-                  mb: 3,
+                  height: 40,
+                  mb: 2,
                   overflow: "visible",
                 }}
               >
@@ -644,11 +644,11 @@ function CheckinPage() {
                   sx={{
                     textAlign: "center",
                     color: hoveredCategory === category.key ? "#666" : "transparent",
-                    mt: 2,
-                    fontSize: "0.85rem",
+                    mt: 1.5,
+                    fontSize: "0.8rem",
                     fontStyle: "italic",
-                    lineHeight: 1.3,
-                    minHeight: "2.4em", // Reserve space for 2 lines
+                    lineHeight: 1.2,
+                    minHeight: "2.2em", // Reserve space for 2 lines
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -661,7 +661,7 @@ function CheckinPage() {
           ))}
         </Box>
 
-        <Box sx={{ mt: 4, textAlign: "center" }}>
+        <Box sx={{ mt: 3, textAlign: "center" }}>
           {!isAddingMode && !existingEntryForDate && (
             <Button
               variant="contained"
@@ -775,7 +775,7 @@ function CheckinPage() {
 
         <Box
           sx={{
-            mt: 2,
+            mt: 1.5,
             textAlign: "center",
             display: "flex",
             alignItems: "center",
@@ -791,7 +791,7 @@ function CheckinPage() {
           </IconButton>
         </Box>
 
-        <Box sx={{ mt: 3, textAlign: "center" }}>
+        <Box sx={{ mt: 2, textAlign: "center" }}>
           <Button
             variant="outlined"
             onClick={() => navigate("/")}
