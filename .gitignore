@@ -113,3 +113,8 @@ Thumbs.db
 
 # Local development
 *.local
+
+# Test reports and results
+test-results/
+playwright-report/
+playwright/.cache/
