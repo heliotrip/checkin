@@ -34,27 +34,78 @@ const emojiScale = {
 
 // Custom slider styles with emoji overlay using CSS
 const getEmojiSliderStyles = (categoryKey, values, categoryColor, isLoading = false, hasExistingEntry = true, hasUserMadeChanges = false) => {
-  // Show grey if loading, OR if no existing entry and user hasn't made changes yet
-  const shouldShowGrey = isLoading || (!hasExistingEntry && !hasUserMadeChanges);
-  const finalColor = shouldShowGrey ? '#bbb' : categoryColor;
+  // Show loading state styling
+  if (isLoading) {
+    return {
+      color: '#bbb',
+      flex: 1,
+      "& .MuiSlider-track": {
+        height: 8,
+        backgroundColor: '#ddd',
+      },
+      "& .MuiSlider-rail": {
+        height: 8,
+        backgroundColor: '#f0f0f0',
+      },
+      "& .MuiSlider-thumb": {
+        height: 28,
+        width: 28,
+        backgroundColor: 'rgba(255, 255, 255, 0.7)',
+        border: '2px solid #bbb',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+        position: 'relative',
+        '&:before': {
+          boxShadow: 'none',
+        },
+        '&:after': {
+          content: 'attr(data-emoji)',
+          position: 'absolute',
+          fontSize: '16px',
+          fontWeight: 'normal',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          zIndex: 10,
+          lineHeight: 1,
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: 0.5,
+        },
+        '&:hover': {
+          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+        },
+        '&.Mui-focusVisible': {
+          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+        },
+      }
+    };
+  }
+
+  // Show monochrome styling for no existing entry (but keep it looking active)
+  const shouldShowMonochrome = !hasExistingEntry && !hasUserMadeChanges;
+  const finalColor = shouldShowMonochrome ? '#666' : categoryColor;
 
   return {
     color: finalColor,
     flex: 1,
     "& .MuiSlider-track": {
       height: 8,
-      backgroundColor: shouldShowGrey ? '#ddd' : 'currentColor',
+      backgroundColor: 'currentColor',
     },
     "& .MuiSlider-rail": {
       height: 8,
-      backgroundColor: shouldShowGrey ? '#f0f0f0' : undefined,
     },
     "& .MuiSlider-thumb": {
       height: 28,
       width: 28,
-      backgroundColor: shouldShowGrey ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.95)',
-      border: shouldShowGrey ? '2px solid #bbb' : '2px solid currentColor',
-      boxShadow: shouldShowGrey ? '0 2px 6px rgba(0,0,0,0.1)' : '0 2px 6px rgba(0,0,0,0.2)',
+      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+      border: '2px solid currentColor',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
       position: 'relative',
       '&:before': {
         boxShadow: 'none',
@@ -76,13 +127,14 @@ const getEmojiSliderStyles = (categoryKey, values, categoryColor, isLoading = fa
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        opacity: shouldShowGrey ? 0.5 : 1,
+        opacity: 1,
+        filter: shouldShowMonochrome ? 'grayscale(1)' : 'none',
       },
       '&:hover': {
-        boxShadow: shouldShowGrey ? '0 2px 6px rgba(0,0,0,0.1)' : '0 0 0 8px rgba(25, 118, 210, 0.16)',
+        boxShadow: '0 0 0 8px rgba(25, 118, 210, 0.16)',
       },
       '&.Mui-focusVisible': {
-        boxShadow: shouldShowGrey ? '0 2px 6px rgba(0,0,0,0.1)' : '0 0 0 8px rgba(25, 118, 210, 0.16)',
+        boxShadow: '0 0 0 8px rgba(25, 118, 210, 0.16)',
       },
     }
   };
@@ -413,19 +465,34 @@ function CheckinPage() {
         enabled: true,
         mode: 'nearest',
         intersect: false,
-        backgroundColor: 'rgba(0,0,0,0.9)',
-        titleColor: 'white',
-        bodyColor: 'white',
-        cornerRadius: 4,
+        backgroundColor: 'rgba(255,255,255,0.95)',
+        titleColor: '#666',
+        bodyColor: '#333',
+        borderColor: 'rgba(0,0,0,0.1)',
+        borderWidth: 1,
+        cornerRadius: 8,
         displayColors: false,
         position: 'average',
-        yAlign: 'top',
+        yAlign: 'bottom',
+        xAlign: 'center',
+        caretSize: 0,
+        titleFont: {
+          size: 11,
+          weight: 'normal'
+        },
+        bodyFont: {
+          size: 13,
+          weight: 'bold'
+        },
+        padding: 6,
         callbacks: {
           title: function(context) {
             return context[0].label;
           },
           label: function(context) {
-            return `${context.parsed.y}`;
+            const value = context.parsed.y;
+            const emoji = emojiScale[value] || '😐';
+            return `${value} ${emoji}`;
           }
         }
       },
@@ -546,6 +613,43 @@ function CheckinPage() {
               Last check-in: {historicalData[historicalData.length - 1]?.date || 'Never'}
             </Typography>
           )}
+        </Box>
+
+        {/* Helpful tip for new check-ins or auto-save confirmation */}
+        <Box sx={{ mb: 2, textAlign: "center" }}>
+          <Typography
+            variant="body2"
+            sx={{
+              color: "#999",
+              fontStyle: "italic",
+              fontSize: "0.9rem",
+              animation: existingEntryForDate
+                ? "fadeIn 0.6s ease-out"
+                : hasUserMadeChanges
+                ? "fadeIn 0.8s ease-out"
+                : "fadeInPulse 1.8s ease-out",
+              "@keyframes fadeIn": {
+                "0%": { opacity: 0, transform: "translateY(-10px)" },
+                "100%": { opacity: 1, transform: "translateY(0)" }
+              },
+              "@keyframes fadeInPulse": {
+                "0%": { opacity: 0, transform: "translateY(-10px)" },
+                "40%": { opacity: 1, transform: "translateY(0)" },
+                "50%": { opacity: 1, transform: "scale(1.05)" },
+                "60%": { opacity: 1, transform: "scale(1)" },
+                "70%": { opacity: 1, transform: "scale(1.03)" },
+                "80%": { opacity: 1, transform: "scale(1)" },
+                "100%": { opacity: 1, transform: "translateY(0)" }
+              }
+            }}
+          >
+            {existingEntryForDate
+              ? "💾 All changes are saved automatically"
+              : hasUserMadeChanges
+              ? "💾 All changes are saved automatically"
+              : `✨ Adjust the sliders to create a check-in for ${date === new Date().toISOString().split("T")[0] ? 'today' : 'this date'}`
+            }
+          </Typography>
         </Box>
 
         <Box

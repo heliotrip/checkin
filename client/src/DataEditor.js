@@ -11,9 +11,11 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  IconButton,
+  Tooltip
 } from '@mui/material';
-import { Download, Upload, Save, Delete, ArrowBack } from '@mui/icons-material';
+import { Download, Upload, Save, Delete, ArrowBack, ContentCopy } from '@mui/icons-material';
 
 function DataEditor() {
   const { userId } = useParams();
@@ -23,6 +25,20 @@ function DataEditor() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [deleteDialog, setDeleteDialog] = useState(false);
+  const [currentName, setCurrentName] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  const loadCurrentName = useCallback(() => {
+    const storedNames = localStorage.getItem('checkin-id-names');
+    if (storedNames) {
+      try {
+        const names = JSON.parse(storedNames);
+        setCurrentName(names[userId] || '');
+      } catch (e) {
+        console.error('Error parsing ID names:', e);
+      }
+    }
+  }, [userId]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -54,7 +70,8 @@ function DataEditor() {
       return;
     }
     loadData();
-  }, [userId, navigate, loadData]);
+    loadCurrentName();
+  }, [userId, navigate, loadData, loadCurrentName]);
 
   const downloadCSV = () => {
     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
@@ -81,6 +98,16 @@ function DataEditor() {
     }
     // Reset the input
     event.target.value = '';
+  };
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(userId);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy: ', err);
+    }
   };
 
   const validateCSV = (csvText) => {
@@ -206,9 +233,29 @@ function DataEditor() {
           </Typography>
         </Box>
 
-        <Typography variant="h6" gutterBottom sx={{ color: '#666', mb: 3 }}>
-          Edit all check-in data for ID: {userId.substring(0, 8)}...
-        </Typography>
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+            <Typography variant="h6" sx={{ color: '#666' }}>
+              Edit all check-in data for ID: {userId.substring(0, 8)}...
+            </Typography>
+            <Tooltip title={copySuccess ? "Copied!" : "Copy ID"}>
+              <IconButton onClick={copyToClipboard} color="primary" size="small">
+                <ContentCopy fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+          {currentName && (
+            <Typography
+              variant="h5"
+              sx={{
+                color: '#1976d2',
+                fontWeight: 'bold',
+              }}
+            >
+              {currentName}
+            </Typography>
+          )}
+        </Box>
 
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
