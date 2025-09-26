@@ -33,54 +33,60 @@ const emojiScale = {
 };
 
 // Custom slider styles with emoji overlay using CSS
-const getEmojiSliderStyles = (categoryKey, values, categoryColor, isLoading = false) => ({
-  color: isLoading ? '#bbb' : categoryColor,
-  flex: 1,
-  "& .MuiSlider-track": {
-    height: 8,
-    backgroundColor: isLoading ? '#ddd' : 'currentColor',
-  },
-  "& .MuiSlider-rail": {
-    height: 8,
-    backgroundColor: isLoading ? '#f0f0f0' : undefined,
-  },
-  "& .MuiSlider-thumb": {
-    height: 28,
-    width: 28,
-    backgroundColor: isLoading ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.95)',
-    border: isLoading ? '2px solid #bbb' : '2px solid currentColor',
-    boxShadow: isLoading ? '0 2px 6px rgba(0,0,0,0.1)' : '0 2px 6px rgba(0,0,0,0.2)',
-    position: 'relative',
-    '&:before': {
-      boxShadow: 'none',
+const getEmojiSliderStyles = (categoryKey, values, categoryColor, isLoading = false, hasExistingEntry = true, hasUserMadeChanges = false) => {
+  // Show grey if loading, OR if no existing entry and user hasn't made changes yet
+  const shouldShowGrey = isLoading || (!hasExistingEntry && !hasUserMadeChanges);
+  const finalColor = shouldShowGrey ? '#bbb' : categoryColor;
+
+  return {
+    color: finalColor,
+    flex: 1,
+    "& .MuiSlider-track": {
+      height: 8,
+      backgroundColor: shouldShowGrey ? '#ddd' : 'currentColor',
     },
-    '&:after': {
-      content: 'attr(data-emoji)',
-      position: 'absolute',
-      fontSize: '16px',
-      fontWeight: 'normal',
-      pointerEvents: 'none',
-      userSelect: 'none',
-      top: '50%',
-      left: '50%',
-      transform: 'translate(-50%, -50%)',
-      zIndex: 10,
-      lineHeight: 1,
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      opacity: isLoading ? 0.5 : 1,
+    "& .MuiSlider-rail": {
+      height: 8,
+      backgroundColor: shouldShowGrey ? '#f0f0f0' : undefined,
     },
-    '&:hover': {
-      boxShadow: isLoading ? '0 2px 6px rgba(0,0,0,0.1)' : '0 0 0 8px rgba(25, 118, 210, 0.16)',
-    },
-    '&.Mui-focusVisible': {
-      boxShadow: isLoading ? '0 2px 6px rgba(0,0,0,0.1)' : '0 0 0 8px rgba(25, 118, 210, 0.16)',
-    },
-  }
-});
+    "& .MuiSlider-thumb": {
+      height: 28,
+      width: 28,
+      backgroundColor: shouldShowGrey ? 'rgba(255, 255, 255, 0.7)' : 'rgba(255, 255, 255, 0.95)',
+      border: shouldShowGrey ? '2px solid #bbb' : '2px solid currentColor',
+      boxShadow: shouldShowGrey ? '0 2px 6px rgba(0,0,0,0.1)' : '0 2px 6px rgba(0,0,0,0.2)',
+      position: 'relative',
+      '&:before': {
+        boxShadow: 'none',
+      },
+      '&:after': {
+        content: 'attr(data-emoji)',
+        position: 'absolute',
+        fontSize: '16px',
+        fontWeight: 'normal',
+        pointerEvents: 'none',
+        userSelect: 'none',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: 10,
+        lineHeight: 1,
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: shouldShowGrey ? 0.5 : 1,
+      },
+      '&:hover': {
+        boxShadow: shouldShowGrey ? '0 2px 6px rgba(0,0,0,0.1)' : '0 0 0 8px rgba(25, 118, 210, 0.16)',
+      },
+      '&.Mui-focusVisible': {
+        boxShadow: shouldShowGrey ? '0 2px 6px rgba(0,0,0,0.1)' : '0 0 0 8px rgba(25, 118, 210, 0.16)',
+      },
+    }
+  };
+};
 
 const categories = [
   {
@@ -141,6 +147,7 @@ function CheckinPage() {
   const [existingEntryForDate, setExistingEntryForDate] = useState(null);
   const [saveError, setSaveError] = useState("");
   const [hoveredCategory, setHoveredCategory] = useState(null);
+  const [hasUserMadeChanges, setHasUserMadeChanges] = useState(false);
 
   const loadCurrentName = useCallback(() => {
     const storedNames = localStorage.getItem("checkin-id-names");
@@ -172,6 +179,7 @@ function CheckinPage() {
       if (data) {
         // Existing entry found
         setExistingEntryForDate(data);
+        setHasUserMadeChanges(false); // Reset since this is existing data
         setValues({
           overall: data.overall,
           wellbeing: data.wellbeing,
@@ -182,6 +190,7 @@ function CheckinPage() {
       } else {
         // No entry for this date - show default or previous values
         setExistingEntryForDate(null);
+        setHasUserMadeChanges(false); // Reset for new date with no entry
 
         // Get fresh historical data for displaying previous values
         const histResponse = await fetch(`/api/checkins/${userId}`);
@@ -284,6 +293,11 @@ function CheckinPage() {
     };
 
     setValues(newValues);
+
+    // Mark that user has made changes (this will colorize all sliders)
+    if (!hasUserMadeChanges) {
+      setHasUserMadeChanges(true);
+    }
 
     // Clear existing timeout
     if (autoSaveTimeout) {
@@ -621,7 +635,7 @@ function CheckinPage() {
                     step={1}
                     marks
                     valueLabelDisplay="off"
-                    sx={getEmojiSliderStyles(category.key, values, category.color, loading)}
+                    sx={getEmojiSliderStyles(category.key, values, category.color, loading, !!existingEntryForDate, hasUserMadeChanges)}
                     componentsProps={{
                       thumb: {
                         'data-emoji': emojiScale[values[category.key]] || "😐"
