@@ -350,18 +350,21 @@ function CheckinPage() {
     if (!hasUserMadeChanges) {
       setHasUserMadeChanges(true);
     }
+  };
+
+  const handleSliderChangeCommitted = (category, newValue) => {
+    const newValues = {
+      ...values,
+      [category]: newValue,
+    };
 
     // Clear existing timeout
     if (autoSaveTimeout) {
       clearTimeout(autoSaveTimeout);
     }
 
-    // Set new timeout for auto-save (debounce for 1 second)
-    const timeout = setTimeout(() => {
-      autoSave(newValues);
-    }, 1000);
-
-    setAutoSaveTimeout(timeout);
+    // Save immediately when user releases slider (no debounce needed)
+    autoSave(newValues);
   };
 
 
@@ -733,6 +736,9 @@ function CheckinPage() {
                     value={values[category.key]}
                     onChange={(e, newValue) =>
                       handleSliderChange(category.key, newValue)
+                    }
+                    onChangeCommitted={(e, newValue) =>
+                      handleSliderChangeCommitted(category.key, newValue)
                     }
                     min={1}
                     max={10}
